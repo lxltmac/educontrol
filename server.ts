@@ -155,6 +155,29 @@ try {
     }
   }
 
+  // 检查 settings 表是否存在
+  const settingsTableExists = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='settings'").get();
+  if (!settingsTableExists) {
+    console.log('[MIGRATION] Creating settings table...');
+    db.exec(`
+      CREATE TABLE settings (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        key TEXT UNIQUE NOT NULL,
+        value TEXT,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    const defaultSettings = [
+      { key: 'site_name', value: 'EduControl' },
+      { key: 'site_subtitle', value: 'Teacher Portal' },
+      { key: 'theme_color', value: '#3B82F6' },
+    ];
+    const insertSetting = db.prepare("INSERT INTO settings (key, value) VALUES (?, ?)");
+    for (const s of defaultSettings) {
+      insertSetting.run(s.key, s.value);
+    }
+  }
+
   // 检查 folders 表是否存在
   const foldersTableExists = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='folders'").get();
   if (!foldersTableExists) {
@@ -919,9 +942,35 @@ async function startServer() {
     }
   });
 
+  // Settings API (before static files)
+  app.get("/api/settings", (req, res) => {
+    try {
+      const settings = db.prepare("SELECT * FROM settings").all();
+      const settingsObj: Record<string, string> = {};
+      (settings as any[]).forEach(s => { settingsObj[s.key] = s.value; });
+      res.json(settingsObj);
+    } catch (e) {
+      console.error('[SETTINGS GET] Error:', e);
+      res.status(500).json({ error: "获取设置失败" });
+    }
+  });
+
+  app.put("/api/settings", (req, res) => {
+    const { key, value } = req.body;
+    if (!key) return res.status(400).json({ error: "缺少 key 参数" });
+    try {
+      db.prepare("INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)").run(key, value);
+      res.json({ success: true });
+    } catch (e) {
+      console.error('[SETTINGS UPDATE] Error:', e);
+      res.status(500).json({ error: "更新设置失败" });
+    }
+  });
+
   // Vite middleware for development - temporarily disabled
   console.log('[START] Using static files...');
   app.use(express.static(path.join(__dirname, "dist"), { index: ['index.html'] }));
+
   app.get("*", (req, res) => {
     console.log(`[ROUTE] Catch-all route for: ${req.path}`);
     res.sendFile(path.join(__dirname, "dist", "index.html"));

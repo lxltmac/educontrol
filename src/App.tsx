@@ -27,7 +27,8 @@ import {
   Pencil,
   Trash,
   ArrowLeft,
-  Home
+  Home,
+  Settings
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -98,6 +99,22 @@ export default function App() {
   const [classes, setClasses] = useState<Class[]>([]);
   const [files, setFiles] = useState<StudentFile[]>([]);
   const [loading, setLoading] = useState(false);
+  const [siteSettings, setSiteSettings] = useState<{ site_name: string; theme_color: string; site_subtitle: string }>({ site_name: 'EduControl', theme_color: '#3B82F6', site_subtitle: 'Teacher Portal' });
+
+  useEffect(() => {
+    fetchSettings();
+  }, []);
+
+  const fetchSettings = async () => {
+    try {
+      const res = await fetch('/api/settings');
+      const data = await res.json();
+      setSiteSettings({ site_name: data.site_name || 'EduControl', theme_color: data.theme_color || '#3B82F6', site_subtitle: data.site_subtitle || 'Teacher Portal' });
+      document.documentElement.style.setProperty('--color-primary', data.theme_color || '#3B82F6');
+    } catch (e) {
+      console.error('Failed to load settings', e);
+    }
+  };
 
   const hasPermission = (permission: string) => {
     return user?.permissions.includes(permission);
@@ -147,7 +164,7 @@ export default function App() {
   };
 
   if (!user) {
-    return <LoginView onLogin={handleLogin} />;
+    return <LoginView onLogin={handleLogin} siteSettings={siteSettings} />;
   }
 
   const handleUpdateStatus = async (id: number, status: 'approved' | 'rejected') => {
@@ -184,12 +201,12 @@ export default function App() {
       {/* Sidebar */}
       <aside className="w-64 bg-white border-r border-slate-200 flex flex-col p-4">
         <div className="flex items-center gap-3 px-2 mb-8">
-          <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center text-white shadow-lg shadow-blue-200">
+          <div className="w-10 h-10 rounded-xl flex items-center justify-center text-white shadow-lg" style={{ backgroundColor: siteSettings.theme_color }}>
             <Layers size={24} />
           </div>
           <div>
-            <h1 className="font-bold text-lg tracking-tight">EduControl</h1>
-            <p className="text-[10px] text-slate-400 uppercase font-bold tracking-widest">Teacher Portal</p>
+            <h1 className="font-bold text-lg tracking-tight" style={{ color: siteSettings.theme_color }}>{siteSettings.site_name}</h1>
+            <p className="text-[10px] text-slate-400 uppercase font-bold tracking-widest">{siteSettings.site_subtitle}</p>
           </div>
         </div>
 
@@ -203,6 +220,7 @@ export default function App() {
               {hasPermission('manage_users') && <SidebarItem id="accounts" icon={Users} label="账号管理" />}
               {hasPermission('manage_roles') && <SidebarItem id="roles" icon={ShieldCheck} label="角色管理" />}
               {hasPermission('manage_menu') && <SidebarItem id="menu" icon={Menu} label="页面管理" />}
+              <SidebarItem id="settings" icon={Settings} label="系统设置" />
             </div>
           )}
         </nav>
@@ -237,6 +255,7 @@ export default function App() {
             {activeTab === 'accounts' && '账号管理'}
             {activeTab === 'roles' && '角色管理'}
             {activeTab === 'menu' && '页面管理'}
+            {activeTab === 'settings' && '系统设置'}
           </h2>
           
           <div className="flex items-center gap-4">
@@ -270,6 +289,7 @@ export default function App() {
               {activeTab === 'accounts' && <AccountsView />}
               {activeTab === 'roles' && <RolesView />}
               {activeTab === 'menu' && <MenuView />}
+              {activeTab === 'settings' && <SettingsView onSettingsChange={fetchSettings} />}
             </motion.div>
           </AnimatePresence>
         </div>
@@ -347,7 +367,7 @@ function MenuView() {
         </div>
         <button 
           onClick={() => setShowAdd(true)}
-          className="bg-blue-600 text-white px-4 py-2 rounded-xl flex items-center gap-2 hover:bg-blue-700"
+          className="bg-[var(--color-primary)] text-white px-4 py-2 rounded-xl flex items-center gap-2 hover:bg-blue-700"
         >
           <Plus size={20} />
           <span>新增菜单</span>
@@ -470,7 +490,7 @@ function MenuView() {
                 </button>
                 <button 
                   type="submit"
-                  className="flex-1 px-4 py-2 rounded-xl bg-blue-600 text-white font-medium"
+                  className="flex-1 px-4 py-2 rounded-xl bg-[var(--color-primary)] text-white font-medium"
                 >
                   保存
                 </button>
@@ -546,7 +566,7 @@ function MenuView() {
                 </button>
                 <button 
                   type="submit"
-                  className="flex-1 px-4 py-2 rounded-xl bg-blue-600 text-white font-medium"
+                  className="flex-1 px-4 py-2 rounded-xl bg-[var(--color-primary)] text-white font-medium"
                 >
                   保存
                 </button>
@@ -559,7 +579,7 @@ function MenuView() {
   );
 }
 
-function LoginView({ onLogin }: { onLogin: (user: User) => void }) {
+function LoginView({ onLogin, siteSettings }: { onLogin: (user: User) => void; siteSettings: { site_name: string; theme_color: string; site_subtitle: string } }) {
   const [username, setUsername] = useState('admin');
   const [password, setPassword] = useState('admin123');
   const [error, setError] = useState('');
@@ -596,11 +616,11 @@ function LoginView({ onLogin }: { onLogin: (user: User) => void }) {
         className="bg-white p-8 rounded-[40px] shadow-2xl shadow-slate-200 w-full max-w-md"
       >
         <div className="flex flex-col items-center mb-8">
-          <div className="w-16 h-16 bg-blue-600 rounded-3xl flex items-center justify-center text-white shadow-xl shadow-blue-200 mb-4">
+          <div className="w-16 h-16 rounded-3xl flex items-center justify-center text-white shadow-xl mb-4" style={{ backgroundColor: siteSettings.theme_color }}>
             <Layers size={32} />
           </div>
-          <h1 className="text-2xl font-black tracking-tight">EduControl</h1>
-          <p className="text-slate-400 text-sm mt-1">智慧校园管理系统</p>
+          <h1 className="text-2xl font-black tracking-tight" style={{ color: siteSettings.theme_color }}>{siteSettings.site_name}</h1>
+          <p className="text-slate-400 text-sm mt-1">{siteSettings.site_subtitle}</p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -632,7 +652,7 @@ function LoginView({ onLogin }: { onLogin: (user: User) => void }) {
           <button 
             type="submit"
             disabled={loading}
-            className="w-full py-4 bg-blue-600 text-white rounded-2xl font-bold hover:bg-blue-700 transition-all shadow-lg shadow-blue-200 disabled:opacity-50"
+            className="w-full py-4 bg-[var(--color-primary)] text-white rounded-2xl font-bold hover:bg-blue-700 transition-all shadow-lg shadow-blue-200 disabled:opacity-50"
           >
             {loading ? '登录中...' : '立即登录'}
           </button>
@@ -798,7 +818,7 @@ function AccountsView() {
             <Upload size={20} />
             <span>导入账号</span>
           </button>
-          <button onClick={() => setShowAdd(true)} className="bg-blue-600 text-white px-4 py-2 rounded-xl flex items-center gap-2 hover:bg-blue-700">
+          <button onClick={() => setShowAdd(true)} className="bg-[var(--color-primary)] text-white px-4 py-2 rounded-xl flex items-center gap-2 hover:bg-blue-700">
             <Plus size={20} />
             <span>新增账号</span>
           </button>
@@ -861,12 +881,12 @@ function AccountsView() {
               <div>
                 <label className="block text-xs font-bold text-slate-400 uppercase mb-2">角色</label>
                 <select value={newUser.role} onChange={(e) => setNewUser({...newUser, role: e.target.value as any})} className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl outline-none">
-                  {roles.map(r => <option key={r.id} value={r.name}>{r.name === 'admin' ? '管理员' : r.name === 'teacher' ? '教师' : r.name}</option>)}
+                  {roles.map(r => <option key={r.id} value={r.name}>{r.name === 'admin' ? '管理员' : r.name === 'teacher' ? '教师' : r.name === 'student' ? '学生' : r.name}</option>)}
                 </select>
               </div>
               <div className="flex gap-3 mt-8">
                 <button type="button" onClick={() => setShowAdd(false)} className="flex-1 px-4 py-2 rounded-xl border border-slate-200 text-slate-600 font-medium">取消</button>
-                <button type="submit" className="flex-1 px-4 py-2 rounded-xl bg-blue-600 text-white font-medium">创建账号</button>
+                <button type="submit" className="flex-1 px-4 py-2 rounded-xl bg-[var(--color-primary)] text-white font-medium">创建账号</button>
               </div>
             </form>
           </div>
@@ -883,7 +903,7 @@ function AccountsView() {
                   <div className="w-20 h-20 rounded-full overflow-hidden bg-slate-100">
                     <img src={editingUser.avatar} alt="Avatar" referrerPolicy="no-referrer" className="w-full h-full object-cover" />
                   </div>
-                  <label className="absolute bottom-0 right-0 w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center text-white cursor-pointer hover:bg-blue-700">
+                  <label className="absolute bottom-0 right-0 w-8 h-8 bg-[var(--color-primary)] rounded-full flex items-center justify-center text-white cursor-pointer hover:bg-blue-700">
                     <Edit size={14} />
                     <input type="file" accept="image/*" className="hidden" onChange={(e) => {
                       const file = e.target.files?.[0];
@@ -909,12 +929,12 @@ function AccountsView() {
               <div>
                 <label className="block text-xs font-bold text-slate-400 uppercase mb-2">角色</label>
                 <select value={editingUser.role} onChange={(e) => setEditingUser({...editingUser, role: e.target.value as any})} className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl outline-none">
-                  {roles.map(r => <option key={r.id} value={r.name}>{r.name === 'admin' ? '管理员' : r.name === 'teacher' ? '教师' : r.name}</option>)}
+                  {roles.map(r => <option key={r.id} value={r.name}>{r.name === 'admin' ? '管理员' : r.name === 'teacher' ? '教师' : r.name === 'student' ? '学生' : r.name}</option>)}
                 </select>
               </div>
               <div className="flex gap-3 mt-8">
                 <button type="button" onClick={() => setEditingUser(null)} className="flex-1 px-4 py-2 rounded-xl border border-slate-200 text-slate-600 font-medium">取消</button>
-                <button type="submit" className="flex-1 px-4 py-2 rounded-xl bg-blue-600 text-white font-medium">保存修改</button>
+                <button type="submit" className="flex-1 px-4 py-2 rounded-xl bg-[var(--color-primary)] text-white font-medium">保存修改</button>
               </div>
             </form>
           </div>
@@ -1286,7 +1306,7 @@ function FilesView({ files = [], onDelete, onRefresh, user }: { files: StudentFi
           </button>
           <button 
             onClick={() => setShowUpload(true)}
-            className="px-4 py-2 rounded-xl bg-blue-600 text-white font-medium hover:bg-blue-700 flex items-center gap-2"
+            className="px-4 py-2 rounded-xl bg-[var(--color-primary)] text-white font-medium hover:bg-blue-700 flex items-center gap-2"
           >
             <Upload size={18} />
             上传文件
@@ -1500,7 +1520,7 @@ function FilesView({ files = [], onDelete, onRefresh, user }: { files: StudentFi
                 <button 
                   type="button"
                   onClick={handleUpload}
-                  className="flex-1 px-4 py-3 rounded-xl bg-blue-600 text-white font-medium hover:bg-blue-700 disabled:opacity-50 flex items-center justify-center gap-2"
+                  className="flex-1 px-4 py-3 rounded-xl bg-[var(--color-primary)] text-white font-medium hover:bg-blue-700 disabled:opacity-50 flex items-center justify-center gap-2"
                   disabled={uploading || !selectedFile}
                 >
                   {uploading ? (
@@ -1646,7 +1666,7 @@ function FilesView({ files = [], onDelete, onRefresh, user }: { files: StudentFi
               </div>
               <div className="flex gap-3 mt-8">
                 <button type="button" onClick={() => setShowAddFolder(false)} className="flex-1 px-4 py-3 rounded-xl border border-slate-200 text-slate-600 font-medium hover:bg-slate-50">取消</button>
-                <button type="button" onClick={handleCreateFolder} className="flex-1 px-4 py-3 rounded-xl bg-blue-600 text-white font-medium hover:bg-blue-700">创建</button>
+                <button type="button" onClick={handleCreateFolder} className="flex-1 px-4 py-3 rounded-xl bg-[var(--color-primary)] text-white font-medium hover:bg-blue-700">创建</button>
               </div>
             </div>
           </div>
@@ -1670,7 +1690,7 @@ function FilesView({ files = [], onDelete, onRefresh, user }: { files: StudentFi
               </div>
               <div className="flex gap-3 mt-8">
                 <button type="button" onClick={() => setEditingFolder(null)} className="flex-1 px-4 py-2 rounded-xl border border-slate-200 text-slate-600 font-medium">取消</button>
-                <button type="submit" className="flex-1 px-4 py-2 rounded-xl bg-blue-600 text-white font-medium">保存</button>
+                <button type="submit" className="flex-1 px-4 py-2 rounded-xl bg-[var(--color-primary)] text-white font-medium">保存</button>
               </div>
             </form>
           </motion.div>
@@ -1773,6 +1793,7 @@ function ClassesView({ classes = [], onRefresh }: { classes: Class[], onRefresh:
       }
       setSelectedStudents([]);
       fetchStudents(selectedClass.id);
+      onRefresh();
     } finally {
       setLoading(false);
     }
@@ -1791,7 +1812,7 @@ function ClassesView({ classes = [], onRefresh }: { classes: Class[], onRefresh:
         </div>
         <button 
           onClick={() => setShowImport(true)}
-          className="bg-blue-600 text-white px-4 py-2 rounded-xl flex items-center gap-2 hover:bg-blue-700 transition-colors shadow-lg shadow-blue-200"
+          className="bg-[var(--color-primary)] text-white px-4 py-2 rounded-xl flex items-center gap-2 hover:bg-blue-700 transition-colors shadow-lg shadow-blue-200"
         >
           <Plus size={20} />
           <span>导入班级</span>
@@ -1885,7 +1906,7 @@ function ClassesView({ classes = [], onRefresh }: { classes: Class[], onRefresh:
               <button 
                 onClick={handleImport}
                 disabled={!importFile || importing}
-                className="flex-1 px-4 py-2 rounded-xl bg-blue-600 text-white font-medium hover:bg-blue-700 transition-colors disabled:opacity-50"
+                className="flex-1 px-4 py-2 rounded-xl bg-[var(--color-primary)] text-white font-medium hover:bg-blue-700 transition-colors disabled:opacity-50"
               >
                 {importing ? '导入中...' : '开始导入'}
               </button>
@@ -2065,7 +2086,7 @@ function RolesView() {
         </div>
         <button 
           onClick={() => setShowAdd(true)}
-          className="bg-blue-600 text-white px-4 py-2 rounded-xl flex items-center gap-2 hover:bg-blue-700 transition-colors shadow-lg shadow-blue-200"
+          className="bg-[var(--color-primary)] text-white px-4 py-2 rounded-xl flex items-center gap-2 hover:bg-blue-700 transition-colors shadow-lg shadow-blue-200"
         >
           <Plus size={20} />
           <span>新增角色</span>
@@ -2077,7 +2098,7 @@ function RolesView() {
           <div key={role.id} className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-4">
             <div className="flex justify-between items-start">
               <div>
-                <h4 className="font-bold text-lg">{role.name === 'admin' ? '系统管理员' : role.name === 'teacher' ? '教师' : role.name}</h4>
+                <h4 className="font-bold text-lg">{role.name === 'admin' ? '系统管理员' : role.name === 'teacher' ? '教师' : role.name === 'student' ? '学生' : role.name}</h4>
                 <p className="text-slate-400 text-xs">{role.description}</p>
               </div>
               <div className="flex gap-1">
@@ -2154,7 +2175,7 @@ function RolesView() {
                       onClick={() => togglePermission(perm.id)}
                       className={`flex items-center justify-between px-4 py-2 rounded-xl border text-sm transition-all ${
                         newRole.permissions.includes(perm.id)
-                          ? 'bg-blue-600 border-blue-600 text-white'
+                          ? 'bg-[var(--color-primary)] border-blue-600 text-white'
                           : 'bg-white border-slate-200 text-slate-600 hover:border-blue-400'
                       }`}
                     >
@@ -2174,7 +2195,7 @@ function RolesView() {
                 </button>
                 <button 
                   type="submit"
-                  className="flex-1 px-4 py-2 rounded-xl bg-blue-600 text-white font-medium"
+                  className="flex-1 px-4 py-2 rounded-xl bg-[var(--color-primary)] text-white font-medium"
                 >
                   保存角色
                 </button>
@@ -2222,7 +2243,7 @@ function RolesView() {
                       onClick={() => togglePermission(perm.id, true)}
                       className={`flex items-center justify-between px-4 py-2 rounded-xl border text-sm transition-all ${
                         editingRole.permissions.includes(perm.id)
-                          ? 'bg-blue-600 border-blue-600 text-white'
+                          ? 'bg-[var(--color-primary)] border-blue-600 text-white'
                           : 'bg-white border-slate-200 text-slate-600 hover:border-blue-400'
                       }`}
                     >
@@ -2242,7 +2263,7 @@ function RolesView() {
                 </button>
                 <button 
                   type="submit"
-                  className="flex-1 px-4 py-2 rounded-xl bg-blue-600 text-white font-medium"
+                  className="flex-1 px-4 py-2 rounded-xl bg-[var(--color-primary)] text-white font-medium"
                 >
                   保存修改
                 </button>
@@ -2251,6 +2272,130 @@ function RolesView() {
           </motion.div>
         </div>
       )}
+    </div>
+  );
+}
+
+function SettingsView({ onSettingsChange }: { onSettingsChange?: () => void }) {
+  const [settings, setSettings] = useState<{ site_name: string; theme_color: string; site_subtitle: string }>({ site_name: '', theme_color: '#3B82F6', site_subtitle: '' });
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    fetchSettings();
+  }, []);
+
+  const fetchSettings = async () => {
+    const res = await fetch('/api/settings');
+    const data = await res.json();
+    setSettings({ site_name: data.site_name || 'EduControl', theme_color: data.theme_color || '#3B82F6', site_subtitle: data.site_subtitle || 'Teacher Portal' });
+  };
+
+  const handleSave = async (key: string, value: string) => {
+    setSaving(true);
+    try {
+      await fetch('/api/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key, value })
+      });
+      if (key === 'theme_color') {
+        document.documentElement.style.setProperty('--color-primary', value);
+      }
+      setSettings(prev => ({ ...prev, [key]: value }));
+      if (onSettingsChange) onSettingsChange();
+      alert('保存成功');
+    } catch (e) {
+      alert('保存失败');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const presetColors = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899', '#06B6D4', '#84CC16'];
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h3 className="text-2xl font-bold">系统设置</h3>
+        <p className="text-slate-500 text-sm">自定义网站名称和主题颜色</p>
+      </div>
+
+      <div className="bg-white rounded-2xl border border-slate-200 p-6 space-y-6">
+        <div>
+          <label className="block text-sm font-medium text-slate-700 mb-2">网站名称</label>
+          <div className="flex gap-3">
+            <input 
+              type="text" 
+              value={settings.site_name}
+              onChange={(e) => setSettings({ ...settings, site_name: e.target.value })}
+              className="flex-1 px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-blue-500"
+              placeholder="输入网站名称"
+            />
+            <button 
+              onClick={() => handleSave('site_name', settings.site_name)}
+              disabled={saving}
+              className="px-6 py-3 bg-[var(--color-primary)] text-white rounded-xl hover:opacity-80 disabled:opacity-50"
+            >
+              {saving ? '保存中...' : '保存'}
+            </button>
+          </div>
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-slate-700 mb-2">网站副标题</label>
+          <div className="flex gap-3">
+            <input 
+              type="text" 
+              value={settings.site_subtitle}
+              onChange={(e) => setSettings({ ...settings, site_subtitle: e.target.value })}
+              className="flex-1 px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-blue-500"
+              placeholder="例如：Teacher Portal"
+            />
+            <button 
+              onClick={() => handleSave('site_subtitle', settings.site_subtitle)}
+              disabled={saving}
+              className="px-6 py-3 bg-[var(--color-primary)] text-white rounded-xl hover:opacity-80 disabled:opacity-50"
+            >
+              {saving ? '保存中...' : '保存'}
+            </button>
+          </div>
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-slate-700 mb-2">主题颜色</label>
+          <div className="flex items-center gap-4">
+            <div className="flex gap-2">
+              {presetColors.map(color => (
+                <button
+                  key={color}
+                  onClick={() => { setSettings({ ...settings, theme_color: color }); handleSave('theme_color', color); }}
+                  className={`w-10 h-10 rounded-full border-2 transition-all ${settings.theme_color === color ? 'border-slate-800 scale-110' : 'border-transparent hover:scale-110'}`}
+                  style={{ backgroundColor: color }}
+                />
+              ))}
+            </div>
+            <div className="flex items-center gap-2">
+              <input 
+                type="color" 
+                value={settings.theme_color}
+                onChange={(e) => setSettings({ ...settings, theme_color: e.target.value })}
+                className="w-10 h-10 rounded cursor-pointer"
+              />
+              <span className="text-sm text-slate-500">{settings.theme_color}</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="pt-4 border-t border-slate-100">
+          <p className="text-sm text-slate-500">预览效果：</p>
+          <div className="mt-3 p-4 rounded-xl bg-slate-50 flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl flex items-center justify-center text-white font-bold" style={{ backgroundColor: settings.theme_color }}>
+              E
+            </div>
+            <span className="font-medium" style={{ color: settings.theme_color }}>{settings.site_name || 'EduControl 智慧校园管理系统'}</span>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -2434,7 +2579,7 @@ function GroupsView({ classes }: { classes: Class[] }) {
           <button 
             onClick={() => setShowCreateGroup(true)}
             disabled={!selectedClass}
-            className="bg-blue-600 text-white px-4 py-2 rounded-xl flex items-center gap-2 hover:bg-blue-700 disabled:bg-slate-300 disabled:cursor-not-allowed"
+            className="bg-[var(--color-primary)] text-white px-4 py-2 rounded-xl flex items-center gap-2 hover:bg-blue-700 disabled:bg-slate-300 disabled:cursor-not-allowed"
           >
             <Plus size={20} />
             <span>新建小组</span>
@@ -2589,7 +2734,7 @@ function GroupsView({ classes }: { classes: Class[] }) {
                 <button 
                   onClick={handleCreateGroup}
                   disabled={loading}
-                  className="flex-1 px-4 py-3 rounded-xl bg-blue-600 text-white font-medium disabled:opacity-50"
+                  className="flex-1 px-4 py-3 rounded-xl bg-[var(--color-primary)] text-white font-medium disabled:opacity-50"
                 >
                   {loading ? '创建中...' : '创建小组'}
                 </button>
@@ -2624,7 +2769,7 @@ function GroupsView({ classes }: { classes: Class[] }) {
                 <button 
                   onClick={handleUpdateGroup}
                   disabled={loading}
-                  className="flex-1 px-4 py-3 rounded-xl bg-blue-600 text-white font-medium disabled:opacity-50"
+                  className="flex-1 px-4 py-3 rounded-xl bg-[var(--color-primary)] text-white font-medium disabled:opacity-50"
                 >
                   {loading ? '保存中...' : '保存'}
                 </button>
@@ -2669,7 +2814,7 @@ function GroupsView({ classes }: { classes: Class[] }) {
               <button 
                 onClick={handleSaveGroupStudents}
                 disabled={loading}
-                className="flex-1 px-4 py-3 rounded-xl bg-blue-600 text-white font-medium disabled:opacity-50"
+                className="flex-1 px-4 py-3 rounded-xl bg-[var(--color-primary)] text-white font-medium disabled:opacity-50"
               >
                 {loading ? '保存中...' : '保存'}
               </button>
