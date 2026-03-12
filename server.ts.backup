@@ -1,0 +1,256 @@
+import express from "express";
+import Database from "better-sqlite3";
+import path from "path";
+import multer from "multer";
+import * as fs from "fs";
+import { fileURLToPath } from "url";
+import * as crypto from "crypto";
+import * as XLSX from "xlsx";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+const uploadDir = path.join(__dirname, "uploads");
+if (!fs.existsSync(uploadDir)) {
+  fs.mkdirSync(uploadDir);
+}
+
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, uploadDir);
+  },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
+    const originalName = Buffer.from(file.originalname, 'latin1').toString('utf8');
+    const sanitizedName = originalName
+      .replace(/[<>:"/\\|?*]/g, '')
+      .replace(/\s+/g, '_');
+    console.log('[MULTER] Original:', originalName, '-> Sanitized:', sanitizedName);
+    cb(null, uniqueSuffix + "-" + sanitizedName);
+  },
+});
+
+const limits = {
+  fieldNameSize: 200,
+  fieldSize: 10 * 1024 * 1024,
+  files: 10,
+  fileFieldSize: 10 * 1024 * 1024,
+};
+
+const upload = multer({ storage, limits });
+
+const db = new Database("edu_control.db");
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS roles (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT UNIQUE NOT NULL,
+    description TEXT,
+    permissions TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT UNIQUE NOT NULL,
+    password TEXT NOT NULL,
+    role TEXT DEFAULT 'teacher',
+    name TEXT NOT NULL,
+    avatar TEXT,
+    student_id INTEGER
+  );
+
+  CREATE TABLE IF NOT EXISTS classes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    grade TEXT,
+    student_count INTEGER DEFAULT 0
+  );
+
+  CREATE TABLE IF NOT EXISTS students (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    student_id TEXT UNIQUE,
+    class_id INTEGER,
+    group_id INTEGER
+  );
+
+  CREATE TABLE IF NOT EXISTS groups (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    class_id INTEGER
+  );
+
+  CREATE TABLE IF NOT EXISTS files (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    student_id INTEGER,
+    name TEXT NOT NULL,
+    file_type TEXT NOT NULL,
+    file_url TEXT,
+    file_size INTEGER,
+    uploaded_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    uploader_name TEXT,
+    uploader_username TEXT,
+    folder_id INTEGER
+  );
+
+  CREATE TABLE IF NOT EXISTS folders (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    parent_id INTEGER,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
+  CREATE TABLE IF NOT EXISTS menus (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    route TEXT,
+    icon TEXT,
+    parent_id INTEGER,
+    order_index INTEGER DEFAULT 0,
+    enabled INTEGER DEFAULT 1,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
+  CREATE TABLE IF NOT EXISTS settings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    key TEXT UNIQUE NOT NULL,
+    value TEXT,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+`);
+
+const roleCount = (db.prepare("SELECT COUNT(*) as count FROM roles").get() as any).count;
+if (roleCount === 0) {
+  db.prepare("INSERT INTO roles (name, description, permissions) VALUES (?, ?, ?)").run(
+    'admin', '系统管理员', JSON.stringify(['view_dashboard', 'manage_classes', 'manage_files', 'manage_groups', 'manage_users', 'manage_roles']));
+  db.prepare("INSERT INTO roles (name, description, permissions) VALUES (?, ?, ?)").run(
+    'teacher', '普通教师', JSON.stringify(['view_dashboard', 'manage_classes', 'manage_files', 'manage_groups']));
+  db.prepare("INSERT INTO roles (name, description, permissions) VALUES (?, ?, ?)").run(
+    'student', '学生', JSON.stringify(['manage_files']));
+}
+
+const studentCount = (db.prepare("SELECT COUNT(*) as count FROM students").get() as any).count;
+if (studentCount === 0) {
+  const classId = db.prepare("INSERT INTO classes (name, grade, student_count) VALUES (?, ?, ?)").run('高二1班', '高二', 3).lastInsertRowid;
+  db.prepare("INSERT INTO students (name, student_id, class_id) VALUES (?, ?, ?)").run('王小明', 'S001', classId);
+  db.prepare("INSERT INTO students (name, student_id, class_id) VALUES (?, ?, ?)").run('李华', 'S002', classId);
+  db.prepare("INSERT INTO students (name, student_id, class_id) VALUES (?, ?, ?)").run('张三', 'S003', classId);
+}
+
+db.exec(`INSERT OR IGNORE INTO users (username, password, role, name, avatar) VALUES ('admin', 'admin123', 'admin', '系统管理员', 'https://picsum.photos/seed/admin/100/100')`);
+
+async function startServer() {
+  console.log('[START] Init...');
+  const app = express();
+  const PORT = 3000;
+
+  app.use(express.json());
+  app.use("/uploads", express.static(uploadDir));
+
+  app.post("/api/login", (req, res) => {
+    const { username, password } = req.body;
+    const user = db.prepare("SELECT * FROM users WHERE username = ? AND password = ?").get(username, password);
+    if (user) res.json({ success: true, user });
+    else res.status(401).json({ success: false, message: "用户名或密码错误" });
+  });
+
+  app.get("/api/classes", (req, res) => res.json(db.prepare("SELECT * FROM classes").all()));
+  app.delete("/api/classes/:id", (req, res) => {
+    db.prepare("DELETE FROM classes WHERE id = ?").run(req.params.id);
+    res.json({ success: true });
+  });
+
+  app.post("/api/classes/import", upload.single("file"), (req, res) => {
+    const file = req.file;
+    if (!file) return res.status(400).json({ success: false, message: "请选择文件" });
+    try {
+      const fileContent = fs.readFileSync(file.path);
+      const workbook = XLSX.read(fileContent, { type: 'buffer' });
+      const sheetName = workbook.SheetNames[0];
+      const worksheet = workbook.Sheets[sheetName];
+      const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+      res.json({ success: true, rows: (jsonData as any[]).length });
+    } catch (e) {
+      res.status(500).json({ success: false, message: "导入失败" });
+    }
+  });
+
+  app.get("/api/files", (req, res) => {
+    const { userId } = req.query;
+    if (!userId) return res.json([]);
+    const user = db.prepare("SELECT * FROM users WHERE id = ?").get(userId) as any;
+    if (!user) return res.json([]);
+    let query = "SELECT f.*, st.name as student_name FROM files f JOIN students st ON f.student_id = st.id";
+    if (user.role === 'student' && user.student_id) {
+      query += " WHERE f.student_id = ?";
+      res.json(db.prepare(query).all(user.student_id));
+    } else {
+      query += " ORDER BY f.uploaded_at DESC";
+      res.json(db.prepare(query).all());
+    }
+  });
+
+  app.post("/api/files", upload.single("file"), (req, res) => {
+    const file = req.file;
+    if (!file) return res.status(400).json({ success: false, message: "未选择文件" });
+    const { studentId, fileType } = req.body;
+    const name = Buffer.from(file.originalname, 'latin1').toString('utf8');
+    db.prepare("INSERT INTO files (student_id, name, file_type, file_url, file_size) VALUES (?, ?, ?, ?, ?)")
+      .run(studentId, name, fileType, `/uploads/${file.filename}`, file.size);
+    res.json({ success: true });
+  });
+
+  app.delete("/api/files/:id", (req, res) => {
+    db.prepare("DELETE FROM files WHERE id = ?").run(req.params.id);
+    res.json({ success: true });
+  });
+
+  app.get("/api/groups", (req, res) => {
+    const { classId } = req.query;
+    if (!classId) return res.json([]);
+    res.json(db.prepare("SELECT * FROM groups WHERE class_id = ?").all(classId));
+  });
+
+  app.post("/api/groups", (req, res) => {
+    const { name, classId } = req.body;
+    const result = db.prepare("INSERT INTO groups (name, class_id) VALUES (?, ?)").run(name, classId);
+    res.json({ success: true, groupId: result.lastInsertRowid });
+  });
+
+  app.get("/api/classes/:classId/students", (req, res) => {
+    res.json(db.prepare("SELECT id, name, student_id FROM students WHERE class_id = ?").all(req.params.classId));
+  });
+
+  app.get("/api/students", (req, res) => {
+    const { classId } = req.query;
+    if (!classId) return res.json([]);
+    res.json(db.prepare("SELECT id, name, student_id FROM students WHERE class_id = ?").all(classId));
+  });
+
+  app.post("/api/students", (req, res) => {
+    const { classId, name, studentId } = req.body;
+    db.prepare("INSERT INTO students (class_id, name, student_id) VALUES (?, ?, ?)").run(classId, name, studentId);
+    res.json({ success: true });
+  });
+
+  app.get("/api/users", (req, res) => {
+    res.json(db.prepare("SELECT id, username, role, name, avatar FROM users").all());
+  });
+
+  app.get("/api/roles", (req, res) => {
+    const roles = db.prepare("SELECT * FROM roles").all();
+    roles.forEach((r: any) => r.permissions = JSON.parse(r.permissions));
+    res.json(roles);
+  });
+
+  app.use(express.static(path.join(__dirname, "dist"), { index: ['index.html'] }));
+  app.get("*", (req, res) => {
+    res.sendFile(path.join(__dirname, "dist", "index.html"));
+  });
+
+  app.listen(PORT, "0.0.0.0", () => {
+    console.log(`Server: http://localhost:${PORT}`);
+  });
+}
+
+startServer().catch(console.error);

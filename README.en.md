@@ -1,36 +1,81 @@
-# educontrol
+# Smart Campus Management System
 
 #### Description
-校园管理系统
+Campus management system
 
-#### Software Architecture
-Software architecture description
+---
 
-#### Installation
+## Development Environment (Hot Reload)
 
-1.  xxxx
-2.  xxxx
-3.  xxxx
+```bash
+cd /Users/lxltmac/Downloads/educontrol---智慧校园管理系统
+npm run dev
+```
 
-#### Instructions
+Visit http://localhost:3000
 
-1.  xxxx
-2.  xxxx
-3.  xxxx
+---
 
-#### Contribution
+## Deployment Guide
 
-1.  Fork the repository
-2.  Create Feat_xxx branch
-3.  Commit your code
-4.  Create Pull Request
+### Option 1: Using the Deployer (Recommended)
 
+1. **Build frontend + bundle backend**
+   ```bash
+   cd /Users/lxltmac/Downloads/educontrol---智慧校园管理系统
+   ./build-deploy.sh
+   ```
 
-#### Gitee Feature
+2. **Deploy using the app**
+   - Open the deployer: `/Users/lxltmac/edu-deploy/src-tauri/target/release/bundle/macos/智慧校园发布器.app`
+   - Select project folder: `/Users/lxltmac/Downloads/educontrol---智慧校园管理系统`
+   - Click "Deploy"
 
-1.  You can use Readme\_XXX.md to support different languages, such as Readme\_en.md, Readme\_zh.md
-2.  Gitee blog [blog.gitee.com](https://blog.gitee.com)
-3.  Explore open source project [https://gitee.com/explore](https://gitee.com/explore)
-4.  The most valuable open source project [GVP](https://gitee.com/gvp)
-5.  The manual of Gitee [https://gitee.com/help](https://gitee.com/help)
-6.  The most popular members  [https://gitee.com/gitee-stars/](https://gitee.com/gitee-stars/)
+### Option 2: Manual Deployment
+
+1. **Build frontend**
+   ```bash
+   npm run build
+   ```
+
+2. **Bundle backend**
+   ```bash
+   npx esbuild server.ts --bundle --platform=node --format=esm --outfile=working-server.js \
+     --external:better-sqlite3 --external:multer --external:express --external:xlsx --external:dotenv
+   ```
+
+3. **Start server**
+   ```bash
+   node working-server.js
+   ```
+
+---
+
+## Build Script
+
+`build-deploy.sh` executes:
+1. `npm run build` - Build React frontend to dist folder
+2. `npx esbuild` - Bundle server.ts into working-server.js
+
+The generated `working-server.js` contains the complete backend API and can be run directly with Node.
+
+---
+
+## Directory Structure
+
+```
+├── server.ts          # Backend source (TypeScript)
+├── working-server.js # Bundled backend (for deployment)
+├── dist/             # Frontend build output
+├── build-deploy.sh   # One-click build script
+├── edu_control.db   # SQLite database
+└── uploads/         # Uploaded files directory
+```
+
+---
+
+## Notes
+
+- After modifying code, run `build-deploy.sh` again before deploying
+- `working-server.js` must be in the same directory as the `dist` folder
+- Default port: 3000

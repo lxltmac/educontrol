@@ -1,0 +1,14 @@
+{
+  "name": "educontrol",
+  "version": "1.0.0",
+  "description": "智慧校园管理系统",
+  "main": "server.ts",
+  "scripts": {
+    "dev": "tsx server.ts",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "keywords": ["education", "school", "management"],
+  "author": "",
+  "license": "MIT"
+}
