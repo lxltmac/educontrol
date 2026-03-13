@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import * as XLSX from 'xlsx';
 import { 
   LayoutDashboard, 
   Users, 
@@ -28,7 +29,13 @@ import {
   Trash,
   ArrowLeft,
   Home,
-  Settings
+  Settings,
+  Music,
+  Presentation,
+  FileText,
+  Image,
+  Video,
+  File
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -88,6 +95,7 @@ export interface User {
   avatar: string;
   permissions: string[];
   student_id?: number;
+  password?: string;
 }
 
 export interface Role {
@@ -293,7 +301,7 @@ export default function App() {
             >
               {activeTab === 'dashboard' && <DashboardView classes={classes} files={files} setActiveTab={setActiveTab} />}
               {activeTab === 'classes' && <ClassesView classes={classes} onRefresh={fetchData} />}
-              {activeTab === 'files' && <FilesView files={files} onDelete={handleDeleteFile} onRefresh={() => { fetchData(); fetchFolders(); }} user={user} />}
+              {activeTab === 'files' && <FilesView files={files} onDelete={handleDeleteFile} onRefresh={fetchData} user={user} />}
               {activeTab === 'groups' && <GroupsView classes={classes} />}
               {activeTab === 'accounts' && <AccountsView />}
               {activeTab === 'roles' && <RolesView />}
@@ -788,10 +796,14 @@ function AccountsView() {
   const handleUpdateUser = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingUser) return;
+    const updateData: any = { username: editingUser.username, name: editingUser.name, role: editingUser.role, avatar: editingUser.avatar };
+    if (editingUser.password && editingUser.password.length > 0) {
+      updateData.password = editingUser.password;
+    }
     await fetch(`/api/users/${editingUser.id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username: editingUser.username, name: editingUser.name, role: editingUser.role, avatar: editingUser.avatar })
+      body: JSON.stringify(updateData)
     });
     fetchUsers();
     setEditingUser(null);
@@ -934,6 +946,10 @@ function AccountsView() {
               <div>
                 <label className="block text-xs font-bold text-slate-400 uppercase mb-2">用户名</label>
                 <input type="text" value={editingUser.username} onChange={(e) => setEditingUser({...editingUser, username: e.target.value})} className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl outline-none" required />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-400 uppercase mb-2">新密码 <span className="text-slate-300 font-normal">(留空则不修改)</span></label>
+                <input type="password" value={editingUser.password || ''} onChange={(e) => setEditingUser({...editingUser, password: e.target.value})} className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl outline-none" placeholder="输入新密码" />
               </div>
               <div>
                 <label className="block text-xs font-bold text-slate-400 uppercase mb-2">角色</label>
@@ -1085,13 +1101,84 @@ function DashboardView({ classes, files = [], setActiveTab }: { classes: Class[]
 
 function FileTypeIcon({ type }: { type: string }) {
   switch (type) {
-    case 'audio': return <Clock size={20} className="text-purple-500" />;
-    case 'ppt': return <Layers size={20} className="text-orange-500" />;
-    case 'pdf': return <FileCheck size={20} className="text-rose-500" />;
-    case 'image': return <Upload size={20} className="text-emerald-500" />;
-    case 'video': return <FileCheck size={20} className="text-blue-500" />;
-    default: return <FileCheck size={20} className="text-slate-400" />;
+    case 'audio': return <Music size={20} className="text-purple-500" />;
+    case 'ppt': return <Presentation size={20} className="text-orange-500" />;
+    case 'pdf': return <FileText size={20} className="text-rose-500" />;
+    case 'image': return <Image size={20} className="text-emerald-500" />;
+    case 'video': return <Video size={20} className="text-blue-500" />;
+    default: return <File size={20} className="text-slate-400" />;
   }
+}
+
+function FileTypeLabel({ type }: { type: string }) {
+  const labels: Record<string, string> = {
+    audio: '音频',
+    ppt: 'PPT',
+    pdf: 'PDF',
+    image: '图片',
+    video: '视频',
+    excel: 'Excel',
+    other: '文件'
+  };
+  return labels[type] || '文件';
+}
+
+function ExcelPreview({ url, name }: { url: string; name: string }) {
+  const [data, setData] = useState<any[][] | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const fetchExcel = async () => {
+      try {
+        setLoading(true);
+        const response = await fetch(url);
+        const arrayBuffer = await response.arrayBuffer();
+        const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+        const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+        const jsonData = XLSX.utils.sheet_to_json(firstSheet, { header: 1 }) as any[][];
+        setData(jsonData.slice(0, 20)); // Limit to first 20 rows
+        setError(null);
+      } catch (err) {
+        console.error('Excel load error:', err);
+        setError('无法加载 Excel 文件');
+      } finally {
+        setLoading(false);
+      }
+    };
+    if (url && url !== '#') {
+      fetchExcel();
+    }
+  }, [url]);
+
+  if (loading) {
+    return <div className="flex items-center justify-center h-full text-sm text-slate-400">加载中...</div>;
+  }
+  if (error) {
+    return <div className="flex items-center justify-center h-full text-sm text-red-400">{error}</div>;
+  }
+  if (!data || data.length === 0) {
+    return <div className="flex items-center justify-center h-full text-sm text-slate-400">空表格</div>;
+  }
+
+  return (
+    <div ref={containerRef} className="overflow-auto h-full bg-white text-xs">
+      <table className="w-full border-collapse">
+        <tbody>
+          {data.map((row, rowIndex) => (
+            <tr key={rowIndex} className={rowIndex % 2 === 0 ? 'bg-slate-50' : 'bg-white'}>
+              {row.map((cell: any, cellIndex: number) => (
+                <td key={cellIndex} className="border border-slate-200 px-2 py-1 whitespace-nowrap">
+                  {cell ?? ''}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
 }
 
 function FilesView({ files = [], onDelete, onRefresh, user }: { files: StudentFile[], onDelete: (id: number) => void, onRefresh: () => void, user: User }) {
@@ -1104,6 +1191,7 @@ function FilesView({ files = [], onDelete, onRefresh, user }: { files: StudentFi
   const [showFolderMoveModal, setShowFolderMoveModal] = useState(false);
   const [targetFolderId, setTargetFolderId] = useState<number | null>(null);
   const [fileType, setFileType] = useState<'audio' | 'ppt' | 'pdf' | 'image' | 'video' | 'other'>('pdf');
+  const [previewFile, setPreviewFile] = useState<StudentFile | null>(null);
   const [uploading, setUploading] = useState(false);
   const [folders, setFolders] = useState<Folder[]>([]);
   const [showAddFolder, setShowAddFolder] = useState(false);
@@ -1112,6 +1200,8 @@ function FilesView({ files = [], onDelete, onRefresh, user }: { files: StudentFi
   const [editingFolder, setEditingFolder] = useState<Folder | null>(null);
   const [editName, setEditName] = useState('');
   const [showBatchActions, setShowBatchActions] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchType, setSearchType] = useState<'file' | 'folder' | 'uploader'>('file');
   const [folderRoles, setFolderRoles] = useState<string[]>(() => {
     if (user?.role === 'student') return ['student'];
     return ['admin', 'teacher'];
@@ -1158,6 +1248,9 @@ function FilesView({ files = [], onDelete, onRefresh, user }: { files: StudentFi
   };
 
   const getChildFolders = (parentId: number | null) => {
+    if (searchType === 'folder' && searchQuery) {
+      return folders.filter(f => f.parent_id === parentId && f.name.toLowerCase().includes(searchQuery.toLowerCase()));
+    }
     return folders.filter(f => f.parent_id === parentId);
   };
 
@@ -1211,10 +1304,25 @@ function FilesView({ files = [], onDelete, onRefresh, user }: { files: StudentFi
   const filteredFiles = (files || []).filter(f => {
     const fileInFolder = parentId ? f.folder_id === parentId : !f.folder_id;
     const typeMatch = filter === 'all' || f.file_type === filter;
+    
+    if (searchType === 'file' && searchQuery) {
+      const nameMatch = f.name.toLowerCase().includes(searchQuery.toLowerCase());
+      if (!nameMatch) return false;
+    }
+    if (searchType === 'uploader' && searchQuery) {
+      const uploaderMatch = (f.uploader_name || '').toLowerCase().includes(searchQuery.toLowerCase());
+      if (!uploaderMatch) return false;
+    }
+    
     return fileInFolder && typeMatch;
   });
   
-  const currentFolders = folders.filter(f => f.parent_id === parentId);
+  const currentFolders = folders.filter(f => {
+    if (searchType === 'folder' && searchQuery) {
+      return f.parent_id === parentId && f.name.toLowerCase().includes(searchQuery.toLowerCase());
+    }
+    return f.parent_id === parentId;
+  });
   const currentFiles = filteredFiles;
   const displayFiles = currentFiles.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
   const totalPages = Math.ceil(currentFiles.length / itemsPerPage);
@@ -1445,7 +1553,28 @@ function FilesView({ files = [], onDelete, onRefresh, user }: { files: StudentFi
           <h3 className="text-2xl font-bold">文件管理</h3>
           <p className="text-slate-500 text-sm">管理学习资源与文件夹</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 items-center">
+          <div className="relative flex items-center">
+            <select 
+              value={searchType} 
+              onChange={(e) => setSearchType(e.target.value as 'file' | 'folder' | 'uploader')}
+              className="px-3 py-2 border border-r-0 border-slate-200 rounded-l-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+            >
+              <option value="file">文件名</option>
+              <option value="folder">文件夹名</option>
+              <option value="uploader">上传者</option>
+            </select>
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+              <input 
+                type="text" 
+                placeholder="搜索..." 
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-10 pr-4 py-2 border border-slate-200 rounded-r-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 w-48"
+              />
+            </div>
+          </div>
           <button 
             onClick={() => setShowAddFolder(true)}
             className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 font-medium hover:bg-slate-50 flex items-center gap-2"
@@ -1585,21 +1714,61 @@ function FilesView({ files = [], onDelete, onRefresh, user }: { files: StudentFi
                   <h4 className="text-sm font-bold text-slate-400 mb-3">文件</h4>
                   <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
                     {displayFiles.map(file => (
-                      <div key={file.id} className="bg-white rounded-xl border border-slate-200 p-3 hover:shadow-md transition-shadow group relative">
+                      <div 
+                        key={file.id} 
+                        className="bg-white rounded-xl border border-slate-200 p-3 hover:shadow-md transition-shadow group relative cursor-pointer"
+                        onClick={() => setPreviewFile(file)}
+                      >
                         <div className="absolute top-2 left-2 z-10">
                           <button onClick={(e) => { e.stopPropagation(); toggleFileSelection(file.id); }}>
                             {selectedFiles.includes(file.id) ? (
                               <CheckCircle2 size={18} className="text-blue-600" />
                             ) : (
                               <Circle size={18} className="text-slate-300" />
-                            )}
+                             )}
                           </button>
                         </div>
-                        <div className="aspect-square bg-slate-50 rounded-lg mb-2 flex items-center justify-center">
+                        <div className="aspect-square bg-slate-50 rounded-lg mb-2 flex items-center justify-center overflow-hidden">
                           {file.file_type === 'image' && file.file_url && file.file_url !== '#' ? (
-                            <img src={file.file_url} alt={file.name} className="w-full h-full object-cover rounded-lg" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                            <img 
+                              src={file.file_url} 
+                              alt={file.name} 
+                              className="w-full h-full object-cover rounded-lg"
+                              loading="lazy"
+                              onError={(e) => { 
+                                console.log('Image load error:', file.file_url);
+                                (e.target as HTMLImageElement).style.display = 'none'; 
+                              }}
+                              onLoad={(e) => {
+                                console.log('Image loaded:', file.file_url);
+                              }}
+                            />
+                          ) : file.file_type === 'video' && file.file_url && file.file_url !== '#' ? (
+                            <video 
+                              src={file.file_url} 
+                              className="w-full h-full object-contain"
+                              controls
+                              preload="metadata"
+                              onError={(e) => { 
+                                console.log('Video load error:', file.file_url);
+                                (e.target as HTMLVideoElement).style.display = 'none'; 
+                              }}
+                            />
+                          ) : (file.file_type === 'pdf' || file.name.match(/\.(xls|xlsx)$/i)) && file.file_url && file.file_url !== '#' ? (
+                            file.name.match(/\.(xls|xlsx)$/i) ? (
+                              <ExcelPreview url={file.file_url} name={file.name} />
+                            ) : (
+                              <iframe 
+                                src={file.file_url}
+                                className="w-full h-full rounded-lg"
+                                title={file.name}
+                              />
+                            )
                           ) : (
-                            <FileTypeIcon type={file.file_type} />
+                            <div className="flex flex-col items-center justify-center">
+                              <FileTypeIcon type={file.file_type} />
+                              <span className="text-xs text-slate-400 mt-1"><FileTypeLabel type={file.file_type} /></span>
+                            </div>
                           )}
                         </div>
                         <p className="font-medium text-xs truncate">{file.name}</p>
@@ -2027,6 +2196,40 @@ function FilesView({ files = [], onDelete, onRefresh, user }: { files: StudentFi
               </div>
             </form>
           </motion.div>
+        </div>
+      )}
+
+      {previewFile && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setPreviewFile(null)}>
+          <div className="bg-white rounded-3xl w-full max-w-4xl h-[80vh] overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between p-4 border-b border-slate-200">
+              <h3 className="font-bold text-lg truncate">{previewFile.name}</h3>
+              <button onClick={() => setPreviewFile(null)} className="p-2 hover:bg-slate-100 rounded-lg">
+                <XCircle size={24} className="text-slate-400" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-auto bg-slate-100">
+              {previewFile.file_type === 'image' && previewFile.file_url && previewFile.file_url !== '#' ? (
+                <img src={previewFile.file_url} alt={previewFile.name} className="w-full h-full object-contain" />
+              ) : previewFile.file_type === 'video' && previewFile.file_url && previewFile.file_url !== '#' ? (
+                <video src={previewFile.file_url} className="w-full h-full object-contain" controls autoPlay />
+              ) : previewFile.name.match(/\.(xls|xlsx)$/i) && previewFile.file_url && previewFile.file_url !== '#' ? (
+                <ExcelPreview url={previewFile.file_url} name={previewFile.name} />
+              ) : (previewFile.file_type === 'pdf' || previewFile.name.match(/\.(pdf)$/i)) && previewFile.file_url && previewFile.file_url !== '#' ? (
+                <iframe src={previewFile.file_url} className="w-full h-full" title={previewFile.name} />
+              ) : (
+                <div className="flex flex-col items-center justify-center h-full text-slate-400">
+                  <FileTypeIcon type={previewFile.file_type} />
+                  <p className="mt-2">暂不支持预览</p>
+                  {previewFile.file_url && previewFile.file_url !== '#' && (
+                    <a href={previewFile.file_url} download className="mt-4 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600">
+                      下载文件
+                    </a>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       )}
     </div>

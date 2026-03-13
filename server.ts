@@ -380,9 +380,14 @@ async function startServer() {
   });
 
   app.put("/api/users/:id", (req, res) => {
-    const { name, role, avatar } = req.body;
+    const { name, role, avatar, password } = req.body;
     try {
-      db.prepare("UPDATE users SET name = ?, role = ?, avatar = ? WHERE id = ?").run(name, role, avatar, req.params.id);
+      if (password && password.length > 0) {
+        const hashedPassword = crypto.createHash('md5').update(password).digest('hex');
+        db.prepare("UPDATE users SET name = ?, role = ?, avatar = ?, password = ? WHERE id = ?").run(name, role, avatar, hashedPassword, req.params.id);
+      } else {
+        db.prepare("UPDATE users SET name = ?, role = ?, avatar = ? WHERE id = ?").run(name, role, avatar, req.params.id);
+      }
       res.json({ success: true });
     } catch (e) {
       res.status(500).json({ success: false, message: "更新失败" });
@@ -730,11 +735,9 @@ async function startServer() {
       return res.status(400).json({ success: false, message: "未选择文件" });
     }
 
-    // Generate UUID-based filename to avoid encoding issues
-    const uuid = crypto.randomUUID();
     const name = Buffer.from(file.originalname, 'latin1').toString('utf8');
     const fileSize = file.size;
-    const fileUrl = `/uploads/${uuid}_${file.filename}`;
+    const fileUrl = `/uploads/${file.filename}`;
 
     console.log('[UPLOAD] File processing:', { name, fileSize, fileUrl });
 
