@@ -69,6 +69,15 @@ export interface Folder {
   id: number;
   name: string;
   parent_id: number | null;
+  role_ids?: string | null;
+  group_ids?: string | null;
+}
+
+export interface Role {
+  id: number;
+  name: string;
+  description: string;
+  permissions: string[];
 }
 
 export interface User {
@@ -232,7 +241,7 @@ export default function App() {
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-xs font-bold truncate">{user.name}</p>
-              <p className="text-[10px] text-slate-400 truncate">{user.role === 'admin' ? '系统管理员' : '授课教师'}</p>
+              <p className="text-[10px] text-slate-400 truncate">{user.role === 'admin' ? '系统管理员' : user.role === 'teacher' ? '授课教师' : '学生'}</p>
             </div>
           </div>
           <button 
@@ -940,9 +949,72 @@ function AccountsView() {
           </div>
         </div>
       )}
+
+      {showImport && (
+        <div className="fixed inset-0 bg-black/20 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <motion.div 
+            initial={{ scale: 0.9, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            className="bg-white rounded-3xl p-8 max-w-lg w-full shadow-2xl"
+          >
+            <h3 className="text-xl font-bold mb-2">导入账号</h3>
+            <p className="text-slate-500 text-sm mb-4">请上传包含账号信息的 Excel 或 CSV 文件</p>
+            
+            <div className="bg-blue-50 rounded-xl p-4 mb-6">
+              <p className="text-sm font-medium text-blue-700 mb-2">模板格式说明：</p>
+              <div className="text-xs text-blue-600 space-y-1">
+                <p>• 用户名 - 登录账号</p>
+                <p>• 密码 - 登录密码</p>
+                <p>• 姓名 - 用户真实姓名</p>
+                <p>• 角色 - admin/teacher/student</p>
+              </div>
+              <button onClick={downloadAccountTemplate} className="mt-3 text-sm text-blue-600 hover:text-blue-700 underline">
+                下载模板文件
+              </button>
+            </div>
+
+            <form onSubmit={handleImportUsers} className="space-y-4">
+              <div className="border-2 border-dashed border-slate-200 rounded-2xl p-8 text-center hover:border-blue-400 transition-colors cursor-pointer group">
+                <input 
+                  type="file" 
+                  name="file"
+                  accept=".xlsx,.xls,.csv,.txt"
+                  className="hidden"
+                  id="accountImportFile"
+                />
+                <label htmlFor="accountImportFile" className="cursor-pointer">
+                  <div className="w-14 h-14 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-3 group-hover:bg-blue-50 transition-colors">
+                    <Upload className="text-slate-400 group-hover:text-blue-500" size={28} />
+                  </div>
+                  <p className="text-sm font-medium text-slate-600">点击或拖拽文件至此处</p>
+                  <p className="text-xs text-slate-400 mt-1">支持 .xlsx, .csv, .txt (最大 10MB)</p>
+                </label>
+              </div>
+
+              <div className="flex gap-3">
+                <button 
+                  type="button" 
+                  onClick={() => { setShowImport(false); }}
+                  className="flex-1 px-4 py-2 rounded-xl border border-slate-200 text-slate-600 font-medium hover:bg-slate-50 transition-colors"
+                >
+                  取消
+                </button>
+                <button 
+                  type="submit"
+                  disabled={importing}
+                  className="flex-1 px-4 py-2 rounded-xl bg-green-600 text-white font-medium hover:bg-green-700 disabled:opacity-50"
+                >
+                  {importing ? '导入中...' : '开始导入'}
+                </button>
+              </div>
+            </form>
+          </motion.div>
+        </div>
+      )}
     </div>
   );
 }
+
 
 function DashboardView({ classes, files = [], setActiveTab }: { classes: Class[], files: StudentFile[], setActiveTab: (tab: Tab) => void }) {
   const audioCount = files.filter(f => f.file_type === 'audio').length;
@@ -1040,13 +1112,50 @@ function FilesView({ files = [], onDelete, onRefresh, user }: { files: StudentFi
   const [editingFolder, setEditingFolder] = useState<Folder | null>(null);
   const [editName, setEditName] = useState('');
   const [showBatchActions, setShowBatchActions] = useState(false);
+  const [folderRoles, setFolderRoles] = useState<string[]>(() => {
+    if (user?.role === 'student') return ['student'];
+    return ['admin', 'teacher'];
+  });
+  const [folderGroups, setFolderGroups] = useState<number[]>([]);
+  const [editFolderRoles, setEditFolderRoles] = useState<string[]>([]);
+  const [editFolderGroups, setEditFolderGroups] = useState<number[]>([]);
+  const [roles, setRoles] = useState<Role[]>([]);
+  const [groups, setGroups] = useState<{id: number; name: string; class_id: number}[]>([]);
   
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 12;
 
   useEffect(() => {
     fetchFolders();
+    fetchRolesForPermission();
+    fetchGroupsForPermission();
   }, []);
+
+  const fetchRolesForPermission = async () => {
+    try {
+      const res = await fetch('/api/roles');
+      const data = await res.json();
+      setRoles(data || []);
+    } catch (e) {
+      console.error('Failed to fetch roles:', e);
+    }
+  };
+
+  const fetchGroupsForPermission = async () => {
+    try {
+      const res = await fetch('/api/classes');
+      const classes = await res.json();
+      const allGroups: {id: number; name: string; class_id: number}[] = [];
+      for (const cls of classes) {
+        const groupRes = await fetch(`/api/groups?classId=${cls.id}`);
+        const groupData = await groupRes.json();
+        allGroups.push(...groupData.map((g: any) => ({ ...g, class_id: cls.id })));
+      }
+      setGroups(allGroups);
+    } catch (e) {
+      console.error('Failed to fetch groups:', e);
+    }
+  };
 
   const getChildFolders = (parentId: number | null) => {
     return folders.filter(f => f.parent_id === parentId);
@@ -1065,6 +1174,25 @@ function FilesView({ files = [], onDelete, onRefresh, user }: { files: StudentFi
             <Folder size={14} className="text-blue-400" />
             {folder.name}
           </button>
+          {(user?.role === 'admin' || user?.role === 'teacher') && (
+            <button 
+              onClick={(e) => {
+                e.stopPropagation();
+                setEditingFolder(folder);
+                setEditName(folder.name);
+                const parseJson = (str: string | null | undefined) => {
+                  if (!str) return [];
+                  try { return JSON.parse(str); } catch { return []; }
+                };
+                setEditFolderRoles(parseJson(folder.role_ids));
+                setEditFolderGroups(parseJson(folder.group_ids));
+              }}
+              className="p-1 text-slate-400 hover:text-blue-600 mr-1"
+              title="编辑权限"
+            >
+              <Settings size={14} />
+            </button>
+          )}
           <input 
             type="checkbox" 
             checked={selectedFolders.includes(folder.id)}
@@ -1110,7 +1238,8 @@ function FilesView({ files = [], onDelete, onRefresh, user }: { files: StudentFi
 
   const fetchFolders = async () => {
     try {
-      const res = await fetch('/api/folders');
+      const userId = user?.id;
+      const res = await fetch(`/api/folders${userId ? `?userId=${userId}` : ''}`);
       if (!res.ok) {
         console.error('Failed to fetch folders:', res.status, res.statusText);
         return;
@@ -1129,10 +1258,16 @@ function FilesView({ files = [], onDelete, onRefresh, user }: { files: StudentFi
     await fetch(`/api/folders/${editingFolder.id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: editName })
+      body: JSON.stringify({ 
+        name: editName,
+        role_ids: editFolderRoles.length > 0 ? editFolderRoles : null,
+        group_ids: editFolderGroups.length > 0 ? editFolderGroups : null
+      })
     });
     setEditingFolder(null);
     setEditName('');
+    setEditFolderRoles([]);
+    setEditFolderGroups([]);
     fetchFolders();
   };
 
@@ -1144,18 +1279,23 @@ function FilesView({ files = [], onDelete, onRefresh, user }: { files: StudentFi
 
   const handleBatchDeleteFiles = async () => {
     if (!confirm(`确定要删除选中的 ${selectedFiles.length} 个文件吗？`)) return;
-    for (const id of selectedFiles) {
-      await onDelete(id);
-    }
+    await fetch('/api/files/batch-delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids: selectedFiles })
+    });
     setSelectedFiles([]);
+    onRefresh();
     setShowBatchActions(false);
   };
 
   const handleBatchDeleteFolders = async () => {
     if (!confirm(`确定要删除选中的 ${selectedFolders.length} 个文件夹吗？`)) return;
-    for (const id of selectedFolders) {
-      await fetch(`/api/folders/${id}`, { method: 'DELETE' });
-    }
+    await fetch('/api/folders/batch-delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids: selectedFolders })
+    });
     setSelectedFolders([]);
     fetchFolders();
   };
@@ -1231,18 +1371,20 @@ function FilesView({ files = [], onDelete, onRefresh, user }: { files: StudentFi
         method: 'POST',
         body: formData
       });
-
-      if (res.ok) {
+      const data = await res.json();
+      console.log('Upload response:', res.status, data);
+      
+      if (res.ok && data.success) {
         onRefresh();
         setShowUpload(false);
         setSelectedFile(null);
         setFileType('pdf');
       } else {
-        const data = await res.json();
         alert(data.message || '上传失败');
       }
     } catch (error) {
-      alert('上传出错');
+      console.error('Upload error:', error);
+      alert('上传出错: ' + (error as Error).message);
     } finally {
       setUploading(false);
     }
@@ -1257,12 +1399,19 @@ function FilesView({ files = [], onDelete, onRefresh, user }: { files: StudentFi
       const res = await fetch('/api/folders', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: newFolderName, parent_id: parentId })
+        body: JSON.stringify({ 
+          name: newFolderName, 
+          parent_id: parentId,
+          role_ids: folderRoles.length > 0 ? folderRoles : null,
+          group_ids: folderGroups.length > 0 ? folderGroups : null
+        })
       });
       const result = await res.json();
       console.log('Create folder result:', result);
       if (result.success) {
         setNewFolderName('');
+        setFolderRoles(user?.role === 'student' ? ['student'] : ['admin', 'teacher']);
+        setFolderGroups([]);
         setShowAddFolder(false);
         await fetchFolders();
         console.log('Folders after creation:', folders);
@@ -1389,20 +1538,40 @@ function FilesView({ files = [], onDelete, onRefresh, user }: { files: StudentFi
                       <div 
                         key={folder.id} 
                         onClick={() => { setParentId(folder.id); setCurrentPage(1); }}
-                        className="bg-white rounded-xl border border-slate-200 p-3 hover:shadow-md hover:border-blue-300 cursor-pointer transition-all group"
+                        className="bg-white rounded-xl border border-slate-200 p-3 hover:shadow-md hover:border-blue-300 cursor-pointer transition-all group relative"
                       >
                         <div className="flex items-center justify-between mb-2">
                           <Folder size={20} className="text-blue-500" />
-                          <input 
-                            type="checkbox" 
-                            checked={selectedFolders.includes(folder.id)}
-                            onChange={(e) => {
-                              e.stopPropagation();
-                              setSelectedFolders(prev => prev.includes(folder.id) ? prev.filter(id => id !== folder.id) : [...prev, folder.id]);
-                            }}
-                            onClick={(e) => e.stopPropagation()}
-                            className="ml-auto"
-                          />
+                          <div className="flex items-center gap-1">
+                            {(user?.role === 'admin' || user?.role === 'teacher') && (
+                              <button 
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setEditingFolder(folder);
+                                  setEditName(folder.name);
+                                  const parseJson = (str: string | null | undefined) => {
+                                    if (!str) return [];
+                                    try { return JSON.parse(str); } catch { return []; }
+                                  };
+                                  setEditFolderRoles(parseJson(folder.role_ids));
+                                  setEditFolderGroups(parseJson(folder.group_ids));
+                                }}
+                                className="p-1 text-slate-400 hover:text-blue-600"
+                                title="编辑权限"
+                              >
+                                <Settings size={14} />
+                              </button>
+                            )}
+                            <input 
+                              type="checkbox" 
+                              checked={selectedFolders.includes(folder.id)}
+                              onChange={(e) => {
+                                e.stopPropagation();
+                                setSelectedFolders(prev => prev.includes(folder.id) ? prev.filter(id => id !== folder.id) : [...prev, folder.id]);
+                              }}
+                              onClick={(e) => e.stopPropagation()}
+                            />
+                          </div>
                         </div>
                         <p className="font-medium text-sm truncate">{folder.name}</p>
                       </div>
@@ -1427,8 +1596,8 @@ function FilesView({ files = [], onDelete, onRefresh, user }: { files: StudentFi
                           </button>
                         </div>
                         <div className="aspect-square bg-slate-50 rounded-lg mb-2 flex items-center justify-center">
-                          {file.file_type === 'image' ? (
-                            <img src={file.file_url} alt={file.name} className="w-full h-full object-cover rounded-lg" />
+                          {file.file_type === 'image' && file.file_url && file.file_url !== '#' ? (
+                            <img src={file.file_url} alt={file.name} className="w-full h-full object-cover rounded-lg" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
                           ) : (
                             <FileTypeIcon type={file.file_type} />
                           )}
@@ -1664,8 +1833,90 @@ function FilesView({ files = [], onDelete, onRefresh, user }: { files: StudentFi
                   placeholder="请输入文件夹名称"
                 />
               </div>
+              
+              {(user?.role === 'admin' || user?.role === 'teacher') && (
+                <>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-400 uppercase mb-2">可见角色（不选则所有人可见）</label>
+                    <div className="flex flex-wrap gap-2">
+                      {roles.map(role => (
+                        <label key={role.id} className="flex items-center gap-1 text-sm">
+                          <input 
+                            type="checkbox"
+                            checked={folderRoles.includes(role.name)}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setFolderRoles([...folderRoles, role.name]);
+                              } else {
+                                setFolderRoles(folderRoles.filter(r => r !== role.name));
+                              }
+                            }}
+                            className="rounded"
+                          />
+                          {role.name === 'admin' ? '管理员' : role.name === 'teacher' ? '教师' : role.name === 'student' ? '学生' : role.name}
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                  
+                  <div>
+                    <label className="block text-xs font-bold text-slate-400 uppercase mb-2">可见小组（不选则所有小组可见）</label>
+                    <div className="border border-slate-200 rounded-lg overflow-hidden">
+                      <div className="p-2 border-b border-slate-100 bg-slate-50">
+                        <input 
+                          type="text" 
+                          placeholder="搜索小组..." 
+                          className="w-full px-3 py-1.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-blue-400"
+                          onChange={(e) => {
+                            const searchInput = e.target as HTMLInputElement;
+                            (window as any).__newGroupSearchTemp = searchInput.value;
+                          }}
+                        />
+                      </div>
+                      <div className="max-h-32 overflow-y-auto p-2">
+                        {(() => {
+                          const searchTerm = (window as any).__newGroupSearchTemp || '';
+                          const filteredGroups = groups.filter((g: any) => g.name.toLowerCase().includes(searchTerm.toLowerCase()));
+                          if (filteredGroups.length === 0) {
+                            return <p className="text-xs text-slate-400 text-center py-2">没有找到小组</p>;
+                          }
+                          return filteredGroups.map((group: any) => (
+                            <label key={group.id} className="flex items-center gap-2 text-sm py-1 px-1 hover:bg-slate-50 rounded cursor-pointer">
+                              <input 
+                                type="checkbox"
+                                checked={folderGroups.includes(group.id)}
+                                onChange={(e) => {
+                                  if (e.target.checked) {
+                                    setFolderGroups([...folderGroups, group.id]);
+                                  } else {
+                                    setFolderGroups(folderGroups.filter((g: number) => g !== group.id));
+                                  }
+                                }}
+                                className="rounded"
+                              />
+                              {group.name}
+                            </label>
+                          ));
+                        })()}
+                      </div>
+                      {folderGroups.length > 0 && (
+                        <div className="p-2 border-t border-slate-100 bg-slate-50 text-xs text-slate-500">
+                          已选择 {folderGroups.length} 个小组
+                          <button 
+                            onClick={() => setFolderGroups([])}
+                            className="ml-2 text-blue-500 hover:underline"
+                          >
+                            清除全部
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </>
+              )}
+              
               <div className="flex gap-3 mt-8">
-                <button type="button" onClick={() => setShowAddFolder(false)} className="flex-1 px-4 py-3 rounded-xl border border-slate-200 text-slate-600 font-medium hover:bg-slate-50">取消</button>
+                <button type="button" onClick={() => { setShowAddFolder(false); setFolderRoles(user?.role === 'student' ? ['student'] : ['admin', 'teacher']); setFolderGroups([]); }} className="flex-1 px-4 py-3 rounded-xl border border-slate-200 text-slate-600 font-medium hover:bg-slate-50">取消</button>
                 <button type="button" onClick={handleCreateFolder} className="flex-1 px-4 py-3 rounded-xl bg-[var(--color-primary)] text-white font-medium hover:bg-blue-700">创建</button>
               </div>
             </div>
@@ -1676,7 +1927,7 @@ function FilesView({ files = [], onDelete, onRefresh, user }: { files: StudentFi
       {editingFolder && (
         <div className="fixed inset-0 bg-black/20 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <motion.div className="bg-white rounded-3xl p-8 max-w-md w-full shadow-2xl">
-            <h3 className="text-xl font-bold mb-6">重命名文件夹</h3>
+            <h3 className="text-xl font-bold mb-6">编辑文件夹</h3>
             <form onSubmit={handleUpdateFolder} className="space-y-4">
               <div>
                 <label className="block text-xs font-bold text-slate-400 uppercase mb-2">文件夹名称</label>
@@ -1688,8 +1939,90 @@ function FilesView({ files = [], onDelete, onRefresh, user }: { files: StudentFi
                   required
                 />
               </div>
+              
+              {(user?.role === 'admin' || user?.role === 'teacher') && (
+                <>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-400 uppercase mb-2">可见角色（不选则所有人可见）</label>
+                    <div className="flex flex-wrap gap-2">
+                      {roles.map(role => (
+                        <label key={role.id} className="flex items-center gap-1 text-sm">
+                          <input 
+                            type="checkbox"
+                            checked={editFolderRoles.includes(role.name)}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setEditFolderRoles([...editFolderRoles, role.name]);
+                              } else {
+                                setEditFolderRoles(editFolderRoles.filter(r => r !== role.name));
+                              }
+                            }}
+                            className="rounded"
+                          />
+                          {role.name === 'admin' ? '管理员' : role.name === 'teacher' ? '教师' : role.name === 'student' ? '学生' : role.name}
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                  
+                  <div>
+                    <label className="block text-xs font-bold text-slate-400 uppercase mb-2">可见小组（不选则所有小组可见）</label>
+                    <div className="border border-slate-200 rounded-lg overflow-hidden">
+                      <div className="p-2 border-b border-slate-100 bg-slate-50">
+                        <input 
+                          type="text" 
+                          placeholder="搜索小组..." 
+                          className="w-full px-3 py-1.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-blue-400"
+                          onChange={(e) => {
+                            const searchInput = e.target as HTMLInputElement;
+                            (window as any).__groupSearchTemp = searchInput.value;
+                          }}
+                        />
+                      </div>
+                      <div className="max-h-32 overflow-y-auto p-2">
+                        {(() => {
+                          const searchTerm = (window as any).__groupSearchTemp || '';
+                          const filteredGroups = groups.filter((g: any) => g.name.toLowerCase().includes(searchTerm.toLowerCase()));
+                          if (filteredGroups.length === 0) {
+                            return <p className="text-xs text-slate-400 text-center py-2">没有找到小组</p>;
+                          }
+                          return filteredGroups.map((group: any) => (
+                            <label key={group.id} className="flex items-center gap-2 text-sm py-1 px-1 hover:bg-slate-50 rounded cursor-pointer">
+                              <input 
+                                type="checkbox"
+                                checked={editFolderGroups.includes(group.id)}
+                                onChange={(e) => {
+                                  if (e.target.checked) {
+                                    setEditFolderGroups([...editFolderGroups, group.id]);
+                                  } else {
+                                    setEditFolderGroups(editFolderGroups.filter((g: number) => g !== group.id));
+                                  }
+                                }}
+                                className="rounded"
+                              />
+                              {group.name}
+                            </label>
+                          ));
+                        })()}
+                      </div>
+                      {editFolderGroups.length > 0 && (
+                        <div className="p-2 border-t border-slate-100 bg-slate-50 text-xs text-slate-500">
+                          已选择 {editFolderGroups.length} 个小组
+                          <button 
+                            onClick={() => setEditFolderGroups([])}
+                            className="ml-2 text-blue-500 hover:underline"
+                          >
+                            清除全部
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </>
+              )}
+              
               <div className="flex gap-3 mt-8">
-                <button type="button" onClick={() => setEditingFolder(null)} className="flex-1 px-4 py-2 rounded-xl border border-slate-200 text-slate-600 font-medium">取消</button>
+                <button type="button" onClick={() => { setEditingFolder(null); setEditFolderRoles([]); setEditFolderGroups([]); }} className="flex-1 px-4 py-2 rounded-xl border border-slate-200 text-slate-600 font-medium">取消</button>
                 <button type="submit" className="flex-1 px-4 py-2 rounded-xl bg-[var(--color-primary)] text-white font-medium">保存</button>
               </div>
             </form>

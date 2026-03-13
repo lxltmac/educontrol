@@ -100,13 +100,15 @@ db.exec(`
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     student_id INTEGER,
     name TEXT NOT NULL,
-    file_type TEXT NOT NULL, -- audio, ppt, pdf, image, video, other
+    file_type TEXT NOT NULL,
     file_url TEXT,
-    file_size INTEGER, -- in bytes
+    file_size INTEGER,
     uploaded_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     uploader_name TEXT,
     uploader_username TEXT,
     folder_id INTEGER,
+    role_ids TEXT,
+    group_ids TEXT,
     FOREIGN KEY(student_id) REFERENCES students(id),
     FOREIGN KEY(folder_id) REFERENCES folders(id)
   );
@@ -116,9 +118,39 @@ db.exec(`
     name TEXT NOT NULL,
     parent_id INTEGER,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    role_ids TEXT,
+    group_ids TEXT,
     FOREIGN KEY(parent_id) REFERENCES folders(id)
   );
 `);
+
+// 迁移：为 files 和 folders 表添加权限字段
+try {
+  const filesColumns = db.prepare("PRAGMA table_info(files)").all() as any[];
+  const filesColumnNames = filesColumns.map(c => c.name);
+  if (!filesColumnNames.includes('role_ids')) {
+    console.log('[MIGRATION] Adding role_ids to files table');
+    db.exec("ALTER TABLE files ADD COLUMN role_ids TEXT");
+  }
+  if (!filesColumnNames.includes('group_ids')) {
+    console.log('[MIGRATION] Adding group_ids to files table');
+    db.exec("ALTER TABLE files ADD COLUMN group_ids TEXT");
+  }
+
+  const foldersColumns = db.prepare("PRAGMA table_info(folders)").all() as any[];
+  const foldersColumnNames = foldersColumns.map(c => c.name);
+  if (!foldersColumnNames.includes('role_ids')) {
+    console.log('[MIGRATION] Adding role_ids to folders table');
+    db.exec("ALTER TABLE folders ADD COLUMN role_ids TEXT");
+  }
+  if (!foldersColumnNames.includes('group_ids')) {
+    console.log('[MIGRATION] Adding group_ids to folders table');
+    db.exec("ALTER TABLE folders ADD COLUMN group_ids TEXT");
+  }
+  console.log('[MIGRATION] Permission columns added successfully');
+} catch (e) {
+  console.log('[MIGRATION] Permission columns already exist or error:', e);
+}
 
 // 数据库迁移：确保 folders 表存在，并为 files 表添加 folder_id 字段
 try {
@@ -362,6 +394,96 @@ async function startServer() {
     res.json({ success: true });
   });
 
+  // 账号导入 API
+  app.post("/api/users/import", upload.single("file"), (req, res) => {
+    console.log('[USER IMPORT] Starting import...');
+    
+    const file = req.file;
+    if (!file) {
+      console.log('[USER IMPORT] No file received');
+      return res.status(400).json({ success: false, message: "请选择文件" });
+    }
+
+    console.log('[USER IMPORT] File received:', file.originalname, file.size);
+
+    try {
+      const fileName = file.originalname.toLowerCase();
+      let data: any[][];
+      
+      if (fileName.endsWith('.csv') || fileName.endsWith('.txt')) {
+        const text = fs.readFileSync(file.path, 'utf8');
+        const lines = text.split(/\r?\n/).filter(line => line.trim());
+        data = lines.map(line => {
+          let parts = line.split('\t');
+          if (parts.length === 1) parts = line.split(',');
+          return parts.map(p => p.trim().replace(/^"|"$/g, ''));
+        });
+      } else {
+        const fileContent = fs.readFileSync(file.path);
+        const workbook = XLSX.read(fileContent, { type: 'buffer' });
+        const sheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[sheetName];
+        const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+        data = (jsonData as any[]).map(row => {
+          if (Array.isArray(row)) return row;
+          return Object.values(row || {});
+        });
+      }
+
+      console.log('[USER IMPORT] Parsed rows:', data.length);
+
+      if (data.length < 2) {
+        return res.status(400).json({ success: false, message: "文件为空或格式错误" });
+      }
+
+      const rows = data.slice(1);
+      let count = 0;
+
+      const insertUser = db.prepare("INSERT OR IGNORE INTO users (username, password, role, name, avatar) VALUES (?, ?, ?, ?, ?)");
+
+      rows.forEach((row) => {
+        if (!row || !Array.isArray(row)) return;
+        
+        const username = String(row[0] || '').trim();
+        const password = String(row[1] || '123456').trim();
+        const name = String(row[2] || '').trim();
+        const role = row[3] ? String(row[3]).trim().toLowerCase() : 'student';
+
+        if (!username || !name) return;
+
+        const normalizedRole = role === '管理员' || role === 'admin' ? 'admin' : 
+                             role === '教师' || role === 'teacher' ? 'teacher' : 'student';
+
+        try {
+          insertUser.run(
+            username,
+            password,
+            normalizedRole,
+            name,
+            `https://picsum.photos/seed/${username}/100/100`
+          );
+          count++;
+        } catch (e) {
+          console.log('[USER IMPORT] Skip duplicate:', username);
+        }
+      });
+
+      console.log('[USER IMPORT] Success:', count, 'users');
+      res.json({ 
+        success: true, 
+        count,
+        message: `成功导入 ${count} 个账号`
+      });
+
+    } catch (error) {
+      console.error('[USER IMPORT] Error:', error);
+      res.status(500).json({ 
+        success: false, 
+        message: "导入失败: " + (error as Error).message 
+      });
+    }
+  });
+
   // API Routes
   app.get("/api/classes", (req, res) => {
     const classes = db.prepare("SELECT * FROM classes").all();
@@ -560,21 +682,29 @@ async function startServer() {
       JOIN classes c ON st.class_id = c.id
     `;
     let params: any[] = [];
+    let whereClause = "";
 
     if (user.role === 'admin' || user.role === 'teacher') {
-      // Admins and teachers see all
+      // Admins and teachers see all files (no filter)
       query += " ORDER BY f.uploaded_at DESC";
     } else if (user.role === 'student' && user.student_id) {
-      // Students see their group's files
       const student = db.prepare("SELECT group_id FROM students WHERE id = ?").get(user.student_id) as any;
-      if (student && student.group_id) {
-        query += " WHERE st.group_id = ? ORDER BY f.uploaded_at DESC";
-        params.push(student.group_id);
-      } else {
-        // If no group, only see own files
-        query += " WHERE f.student_id = ? ORDER BY f.uploaded_at DESC";
-        params.push(user.student_id);
+      const userGroupId = student?.group_id || null;
+      
+      const conditions = [
+        "(f.role_ids IS NULL AND f.group_ids IS NULL)",
+        "(f.role_ids LIKE '%student%')",
+        "(f.student_id = ?)",
+      ];
+      params.push(user.student_id);
+      
+      if (userGroupId) {
+        conditions.push("(EXISTS (SELECT 1 FROM json_each(f.group_ids) WHERE json_each.value = ?))");
+        params.push(userGroupId);
       }
+      
+      whereClause = " WHERE " + conditions.join(" OR ");
+      query += whereClause + " ORDER BY f.uploaded_at DESC";
     } else {
       return res.json([]);
     }
@@ -589,10 +719,10 @@ async function startServer() {
     console.log('[UPLOAD] Body keys:', Object.keys(req.body));
     console.log('[UPLOAD] Body values:', req.body);
 
-    const { studentId, fileType } = req.body;
+    const { studentId, fileType, role_ids, group_ids } = req.body;
     const file = req.file;
 
-    console.log('[UPLOAD] Extracted values:', { studentId, fileType });
+    console.log('[UPLOAD] Extracted values:', { studentId, fileType, role_ids, group_ids });
     console.log('[UPLOAD] File info:', { filename: file?.filename, originalname: file?.originalname });
 
     if (!file) {
@@ -615,8 +745,10 @@ async function startServer() {
     console.log('[UPLOAD] About to insert:', { studentId, name, fileType, fileUrl, fileSize, uploaderName: uploader?.name || '未知', uploaderUsername: uploader?.username || 'unknown' });
 
     try {
-      const result = db.prepare("INSERT INTO files (student_id, name, file_type, file_url, file_size, uploader_name, uploader_username) VALUES (?, ?, ?, ?, ?, ?, ?)")
-        .run(studentId, name, fileType, fileUrl, fileSize, uploader?.name || '未知', uploader?.username || 'unknown');
+      const roleIdsJson = role_ids ? JSON.stringify(role_ids) : null;
+      const groupIdsJson = group_ids ? JSON.stringify(group_ids) : null;
+      const result = db.prepare("INSERT INTO files (student_id, name, file_type, file_url, file_size, uploader_name, uploader_username, role_ids, group_ids) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+        .run(studentId, name, fileType, fileUrl, fileSize, uploader?.name || '未知', uploader?.username || 'unknown', roleIdsJson, groupIdsJson);
       console.log('[UPLOAD] Success:', result);
       res.json({ success: true });
     } catch (e) {
@@ -675,10 +807,39 @@ async function startServer() {
 
   // ========== 文件夹管理 API ==========
 
-  // 获取所有文件夹
+  // 获取所有文件夹（带权限过滤）
   app.get("/api/folders", (req, res) => {
     try {
-      const folders = db.prepare("SELECT * FROM folders ORDER BY created_at DESC").all();
+      const { userId } = req.query;
+      
+      if (!userId) {
+        return res.json({ success: true, folders: [] });
+      }
+
+      const user = db.prepare("SELECT * FROM users WHERE id = ?").get(userId) as any;
+      if (!user) {
+        return res.json({ success: true, folders: [] });
+      }
+
+      let folders;
+      if (user.role === 'admin' || user.role === 'teacher') {
+        // Admins and teachers see all folders
+        folders = db.prepare("SELECT * FROM folders ORDER BY created_at DESC").all();
+      } else if (user.role === 'student' && user.student_id) {
+        const student = db.prepare("SELECT group_id FROM students WHERE id = ?").get(user.student_id) as any;
+        const userGroupId = student?.group_id || null;
+        
+        folders = db.prepare(`
+          SELECT DISTINCT f.* FROM folders f
+          WHERE (f.role_ids IS NULL AND f.group_ids IS NULL)
+             OR (f.role_ids LIKE '%student%')
+             OR EXISTS (SELECT 1 FROM json_each(f.group_ids) WHERE json_each.value = ?)
+          ORDER BY f.created_at DESC
+        `).all(userGroupId);
+      } else {
+        folders = [];
+      }
+
       res.json({ success: true, folders });
     } catch (e) {
       console.error('[FOLDERS GET] Error:', e);
@@ -688,13 +849,20 @@ async function startServer() {
 
   // 创建文件夹
   app.post("/api/folders", (req, res) => {
-    const { name, parent_id } = req.body;
+    const { name, parent_id, role_ids, group_ids } = req.body;
     if (!name || !name.trim()) {
       return res.status(400).json({ success: false, message: "文件夹名称不能为空" });
     }
 
     try {
-      const result = db.prepare("INSERT INTO folders (name, parent_id) VALUES (?, ?)").run(name.trim(), parent_id || null);
+      const roleIdsJson = role_ids ? JSON.stringify(role_ids) : null;
+      const groupIdsJson = group_ids ? JSON.stringify(group_ids) : null;
+      const result = db.prepare("INSERT INTO folders (name, parent_id, role_ids, group_ids) VALUES (?, ?, ?, ?)").run(
+        name.trim(), 
+        parent_id || null,
+        roleIdsJson,
+        groupIdsJson
+      );
       res.json({ success: true, folderId: result.lastInsertRowid });
     } catch (e) {
       console.error('[FOLDER CREATE] Error:', e);
@@ -704,27 +872,28 @@ async function startServer() {
 
   // 更新文件夹
   app.put("/api/folders/:id", (req, res) => {
-    const { name, parentId } = req.body;
-    console.log('[FOLDER UPDATE] name:', name, 'parentId:', parentId);
+    const { name, parentId, role_ids, group_ids } = req.body;
+    console.log('[FOLDER UPDATE] name:', name, 'parentId:', parentId, 'role_ids:', role_ids, 'group_ids:', group_ids);
     
-    if (parentId !== undefined && parentId !== null) {
-      try {
+    try {
+      if (role_ids !== undefined || group_ids !== undefined) {
+        const roleIdsJson = role_ids ? JSON.stringify(role_ids) : null;
+        const groupIdsJson = group_ids ? JSON.stringify(group_ids) : null;
+        db.prepare("UPDATE folders SET role_ids = ?, group_ids = ? WHERE id = ?").run(roleIdsJson, groupIdsJson, req.params.id);
+      }
+      
+      if (parentId !== undefined && parentId !== null) {
         db.prepare("UPDATE folders SET parent_id = ? WHERE id = ?").run(parentId, req.params.id);
-        res.json({ success: true });
-      } catch (e) {
-        console.error('[FOLDER UPDATE] Error:', e);
-        res.status(500).json({ success: false, message: "更新文件夹失败" });
       }
-    } else if (name && name.trim()) {
-      try {
+      
+      if (name && name.trim()) {
         db.prepare("UPDATE folders SET name = ? WHERE id = ?").run(name.trim(), req.params.id);
-        res.json({ success: true });
-      } catch (e) {
-        console.error('[FOLDER UPDATE] Error:', e);
-        res.status(500).json({ success: false, message: "更新文件夹失败" });
       }
-    } else {
-      return res.status(400).json({ success: false, message: "文件夹名称或父文件夹不能为空" });
+      
+      res.json({ success: true });
+    } catch (e) {
+      console.error('[FOLDER UPDATE] Error:', e);
+      res.status(500).json({ success: false, message: "更新文件夹失败" });
     }
   });
 
@@ -742,6 +911,33 @@ async function startServer() {
     } catch (e) {
       console.error('[FOLDER DELETE] Error:', e);
       res.status(500).json({ success: false, message: "删除文件夹失败" });
+    }
+  });
+
+  // 批量删除文件夹
+  app.post("/api/folders/batch-delete", (req, res) => {
+    const { ids } = req.body;
+    if (!ids || !Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ success: false, message: "请选择要删除的文件夹" });
+    }
+
+    try {
+      const deleteFolderStmt = db.prepare("DELETE FROM folders WHERE id = ?");
+      const updateFilesStmt = db.prepare("UPDATE files SET folder_id = NULL WHERE folder_id = ?");
+      const updateFoldersStmt = db.prepare("UPDATE folders SET parent_id = NULL WHERE parent_id = ?");
+      
+      const deleteMany = db.transaction((folderIds) => {
+        for (const id of folderIds) {
+          updateFilesStmt.run(id);
+          updateFoldersStmt.run(id);
+          deleteFolderStmt.run(id);
+        }
+      });
+      deleteMany(ids);
+      res.json({ success: true, message: `成功删除 ${ids.length} 个文件夹` });
+    } catch (e) {
+      console.error('[FOLDERS BATCH DELETE] Error:', e);
+      res.status(500).json({ success: false, message: "批量删除文件夹失败" });
     }
   });
 
