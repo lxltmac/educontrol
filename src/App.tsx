@@ -5,6 +5,7 @@ import Modal from './components/ui/Modal';
 import Alert from './components/ui/Alert';
 import { FileTypeSelect } from './components/ui/FileTypeSelect';
 import { SearchTypeSelect } from './components/ui/SearchTypeSelect';
+import { ModernSidebar } from './components/ui/ModernSidebar';
 import { 
   AlertTriangle,
   LayoutDashboard, 
@@ -124,6 +125,7 @@ export default function App() {
     return saved ? JSON.parse(saved) : null;
   });
   const [activeTab, setActiveTab] = useState<Tab>('dashboard');
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [classes, setClasses] = useState<Class[]>([]);
   const [files, setFiles] = useState<StudentFile[]>([]);
   const [loading, setLoading] = useState(false);
@@ -263,20 +265,6 @@ export default function App() {
     });
   };
 
-  const SidebarItem = ({ id, icon: Icon, label }: { id: Tab, icon: any, label: string }) => (
-    <button
-      onClick={() => setActiveTab(id)}
-      className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 ${
-        activeTab === id 
-          ? 'bg-blue-50 text-blue-600 font-medium shadow-sm' 
-          : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'
-      }`}
-    >
-      <Icon size={20} />
-      <span className="text-sm">{label}</span>
-    </button>
-  );
-
   return (
     <div className="flex h-screen bg-slate-50 font-sans text-slate-900">
       {notification && (
@@ -314,54 +302,19 @@ export default function App() {
           </div>
         </div>
       )}
-      {/* Sidebar */}
-      <aside className="w-64 bg-white border-r border-slate-200 flex flex-col p-4">
-        <div className="flex items-center gap-3 px-2 mb-8">
-          <div className="w-10 h-10 rounded-xl flex items-center justify-center text-white shadow-lg" style={{ backgroundColor: siteSettings.theme_color }}>
-            <Layers size={24} />
-          </div>
-          <div>
-            <h1 className="font-bold text-lg tracking-tight" style={{ color: siteSettings.theme_color }}>{siteSettings.site_name}</h1>
-            <p className="text-[10px] text-slate-400 uppercase font-bold tracking-widest">{siteSettings.site_subtitle}</p>
-          </div>
-        </div>
-
-        <nav className="flex-1 space-y-1">
-          {hasPermission('view_dashboard') && <SidebarItem id="dashboard" icon={LayoutDashboard} label="仪表盘" />}
-          {hasPermission('manage_classes') && <SidebarItem id="classes" icon={Users} label="班级管理" />}
-          {hasPermission('manage_files') && <SidebarItem id="files" icon={FileCheck} label="文件管理" />}
-          {hasPermission('manage_groups') && <SidebarItem id="groups" icon={Layers} label="分组管理" />}
-          {(hasPermission('manage_users') || hasPermission('manage_roles')) && (
-            <div className="pt-4 mt-4 border-t border-slate-100 space-y-1">
-              {hasPermission('manage_users') && <SidebarItem id="accounts" icon={Users} label="账号管理" />}
-              {hasPermission('manage_roles') && <SidebarItem id="roles" icon={ShieldCheck} label="角色管理" />}
-              {hasPermission('manage_menu') && <SidebarItem id="menu" icon={Menu} label="页面管理" />}
-              <SidebarItem id="settings" icon={Settings} label="系统设置" />
-            </div>
-          )}
-        </nav>
-
-        <div className="mt-auto p-4 bg-slate-50 rounded-2xl border border-slate-100">
-          <div className="flex items-center gap-3 mb-3">
-            <div className="w-8 h-8 rounded-full bg-slate-200 overflow-hidden">
-              <img src={user.avatar} alt="Avatar" referrerPolicy="no-referrer" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-xs font-bold truncate">{user.name}</p>
-              <p className="text-[10px] text-slate-400 truncate">{user.role === 'admin' ? '系统管理员' : user.role === 'teacher' ? '授课教师' : '学生'}</p>
-            </div>
-          </div>
-          <button 
-            onClick={handleLogout}
-            className="w-full py-2 text-xs font-medium text-rose-500 hover:bg-rose-50 rounded-lg transition-colors border border-rose-100"
-          >
-            退出登录
-          </button>
-        </div>
-      </aside>
+      <ModernSidebar
+        activeTab={activeTab}
+        onTabChange={setActiveTab}
+        user={user}
+        onLogout={handleLogout}
+        siteSettings={siteSettings}
+        hasPermission={hasPermission}
+        isCollapsed={sidebarCollapsed}
+        onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
+      />
 
       {/* Main Content */}
-      <main className="flex-1 overflow-y-auto">
+      <main className={`flex-1 overflow-y-auto transition-all duration-300 ${sidebarCollapsed ? 'md:pl-20' : 'md:pl-64'} pl-16`}>
         <header className="h-16 bg-white border-b border-slate-200 px-8 flex items-center justify-between sticky top-0 z-10 shadow-sm shadow-slate-100/50">
           <h2 className="font-semibold text-slate-800">
             {activeTab === 'dashboard' && '概览'}
