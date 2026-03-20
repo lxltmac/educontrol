@@ -919,8 +919,8 @@ function AccountsView({ showConfirm, showNotification }: { showConfirm: (options
 
       {Object.entries(groupedUsers).map(([role, roleUsers]) => {
         if (roleUsers.length === 0) return null;
-        const roleLabel = role === 'admin' ? '管理员' : role === 'teacher' ? '教师' : '学生';
-        const roleColor = role === 'admin' ? 'bg-red-50 border-red-200' : role === 'teacher' ? 'bg-blue-50 border-blue-200' : 'bg-green-50 border-green-200';
+        const roleLabel = role === 'admin' ? '管理员' : role === 'teacher' ? '教师' : role === 'student' ? '学生' : role;
+        const roleColor = role === 'admin' ? 'bg-red-50 border-red-200' : role === 'teacher' ? 'bg-blue-50 border-blue-200' : role === 'student' ? 'bg-green-50 border-green-200' : 'bg-purple-50 border-purple-200';
         return (
           <div key={role} className="space-y-4">
             <h4 className="text-lg font-bold">{roleLabel} ({roleUsers.length}人)</h4>
