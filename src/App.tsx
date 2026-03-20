@@ -6,6 +6,7 @@ import Alert from './components/ui/Alert';
 import { FileTypeSelect } from './components/ui/FileTypeSelect';
 import { SearchTypeSelect } from './components/ui/SearchTypeSelect';
 import { ModernSidebar } from './components/ui/ModernSidebar';
+import { SearchableSelect } from './components/ui/SearchableSelect';
 import { 
   AlertTriangle,
   LayoutDashboard, 
@@ -3220,14 +3221,12 @@ function GroupsView({ classes, showNotification, showConfirm }: { classes: Class
       <div className="bg-white rounded-3xl border border-slate-200 p-6">
         <div className="mb-6">
           <label className="block text-sm font-medium text-slate-700 mb-2">选择班级</label>
-          <select 
-            value={selectedClass}
-            onChange={(e) => setSelectedClass(e.target.value ? Number(e.target.value) : '')}
-            className="w-full px-4 py-3 rounded-xl border border-slate-200 bg-slate-50 text-sm focus:ring-2 focus:ring-blue-500/20 outline-none"
-          >
-            <option value="">选择要分组的班级...</option>
-            {classes.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-          </select>
+          <SearchableSelect
+            value={selectedClass ? String(selectedClass) : ''}
+            onChange={(val) => setSelectedClass(val ? Number(val) : '')}
+            options={classes.map(c => ({ value: String(c.id), label: c.name }))}
+            placeholder="选择要分组的班级..."
+          />
         </div>
 
         {selectedClass && (
@@ -3280,14 +3279,21 @@ function GroupsView({ classes, showNotification, showConfirm }: { classes: Class
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-2">分组方式</label>
-                <select 
-                  value={randomGroupConfig.method}
-                  onChange={(e) => setRandomGroupConfig({ ...randomGroupConfig, method: e.target.value, value: 4 })}
-                  className="w-full px-4 py-3 rounded-xl border border-slate-200 bg-slate-50 text-sm outline-none"
-                >
-                  <option value="count">指定分组数量</option>
-                  <option value="size">每组人数</option>
-                </select>
+                <div className="relative">
+                  <select 
+                    value={randomGroupConfig.method}
+                    onChange={(e) => setRandomGroupConfig({ ...randomGroupConfig, method: e.target.value, value: 4 })}
+                    className="w-full px-4 py-3 pl-10 rounded-xl border border-slate-200 bg-white text-sm outline-none appearance-none cursor-pointer hover:border-slate-300 transition-colors"
+                  >
+                    <option value="count">指定分组数量</option>
+                    <option value="size">每组人数</option>
+                  </select>
+                  <div className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </div>
+                </div>
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-2">
