@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import * as XLSX from 'xlsx';
 import FolderCard from './components/ui/FolderCard';
 import Modal from './components/ui/Modal';
@@ -344,24 +344,16 @@ export default function App() {
         </header>
 
         <div className="p-8 max-w-7xl mx-auto">
-          <AnimatePresence mode="wait">
-            <motion.div
-              key={activeTab}
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
-              transition={{ duration: 0.2 }}
-            >
-              {activeTab === 'dashboard' && <DashboardView classes={classes} files={files} setActiveTab={setActiveTab} />}
-              {activeTab === 'classes' && <ClassesView classes={classes} onRefresh={fetchData} showNotification={showNotification} showConfirm={showConfirm} />}
-              {activeTab === 'files' && <FilesView files={files} onDelete={handleDeleteFile} onRefresh={fetchData} user={user} showConfirm={showConfirm} showNotification={showNotification} />}
-              {activeTab === 'groups' && <GroupsView classes={classes} showNotification={showNotification} showConfirm={showConfirm} />}
-              {activeTab === 'accounts' && <AccountsView showConfirm={showConfirm} showNotification={showNotification} />}
-              {activeTab === 'roles' && <RolesView showNotification={showNotification} showConfirm={showConfirm} />}
-              {activeTab === 'menu' && <MenuView showConfirm={showConfirm} />}
-              {activeTab === 'settings' && <SettingsView onSettingsChange={fetchSettings} />}
-            </motion.div>
-          </AnimatePresence>
+          <div key={activeTab}>
+            {activeTab === 'dashboard' && <DashboardView classes={classes} files={files} setActiveTab={setActiveTab} />}
+            {activeTab === 'classes' && <ClassesView classes={classes} onRefresh={fetchData} showNotification={showNotification} showConfirm={showConfirm} />}
+            {activeTab === 'files' && <FilesView files={files} onDelete={handleDeleteFile} onRefresh={fetchData} user={user} showConfirm={showConfirm} showNotification={showNotification} />}
+            {activeTab === 'groups' && <GroupsView classes={classes} showNotification={showNotification} showConfirm={showConfirm} />}
+            {activeTab === 'accounts' && <AccountsView showConfirm={showConfirm} showNotification={showNotification} />}
+            {activeTab === 'roles' && <RolesView showNotification={showNotification} showConfirm={showConfirm} />}
+            {activeTab === 'menu' && <MenuView showConfirm={showConfirm} />}
+            {activeTab === 'settings' && <SettingsView onSettingsChange={fetchSettings} />}
+          </div>
         </div>
       </main>
     </div>
@@ -1256,6 +1248,7 @@ function FilesView({ files = [], onDelete, onRefresh, user, showConfirm, showNot
   const [selectedFolders, setSelectedFolders] = useState<number[]>([]);
   const [showMoveModal, setShowMoveModal] = useState(false);
   const [showFolderMoveModal, setShowFolderMoveModal] = useState(false);
+  const [loading, setLoading] = useState(false);
   const [moveFileSearch, setMoveFileSearch] = useState('');
   const [moveFolderSearch, setMoveFolderSearch] = useState('');
   const [targetFolderId, setTargetFolderId] = useState<number | null>(null);
@@ -1304,27 +1297,33 @@ function FilesView({ files = [], onDelete, onRefresh, user, showConfirm, showNot
 
   const fetchRolesForPermission = async () => {
     try {
+      setLoading(true);
       const res = await fetch('/api/roles');
       const data = await res.json();
       setRoles(data || []);
     } catch (e) {
       console.error('Failed to fetch roles:', e);
+    } finally {
+      setLoading(false);
     }
   };
 
   const fetchGroupsForPermission = async () => {
     try {
+      setLoading(true);
       const res = await fetch('/api/classes');
       const classes = await res.json();
-      const allGroups: {id: number; name: string; class_id: number}[] = [];
-      for (const cls of classes) {
-        const groupRes = await fetch(`/api/groups?classId=${cls.id}`);
-        const groupData = await groupRes.json();
-        allGroups.push(...groupData.map((g: any) => ({ ...g, class_id: cls.id })));
-      }
-      setGroups(allGroups);
+      const groupPromises = classes.map((cls: any) => 
+        fetch(`/api/groups?classId=${cls.id}`)
+          .then(r => r.json())
+          .then(groupData => groupData.map((g: any) => ({ ...g, class_id: cls.id })))
+      );
+      const results = await Promise.all(groupPromises);
+      setGroups(results.flat());
     } catch (e) {
       console.error('Failed to fetch groups:', e);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -1382,7 +1381,7 @@ function FilesView({ files = [], onDelete, onRefresh, user, showConfirm, showNot
     ));
   };
 
-  const filteredFiles = (files || []).filter(f => {
+  const filteredFiles = useMemo(() => (files || []).filter(f => {
     const fileInFolder = parentId ? f.folder_id === parentId : !f.folder_id;
     const typeMatch = filter === 'all' || f.file_type === filter;
     
@@ -1396,19 +1395,20 @@ function FilesView({ files = [], onDelete, onRefresh, user, showConfirm, showNot
     }
     
     return fileInFolder && typeMatch;
-  });
+  }), [files, parentId, filter, searchType, searchQuery]);
   
-  const currentFolders = folders.filter(f => {
+  const currentFolders = useMemo(() => folders.filter(f => {
     if (searchType === 'folder' && searchQuery) {
       return f.parent_id === parentId && f.name.toLowerCase().includes(searchQuery.toLowerCase());
     }
     return f.parent_id === parentId;
-  });
+  }), [folders, parentId, searchType, searchQuery]);
+  
   const currentFiles = filteredFiles;
-  const displayFiles = currentFiles.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+  const displayFiles = useMemo(() => currentFiles.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage), [currentFiles, currentPage]);
   const totalPages = Math.ceil(currentFiles.length / itemsPerPage);
   
-  const getBreadcrumb = () => {
+  const getBreadcrumb = useCallback(() => {
     const path: {id: number | null, name: string}[] = [{id: null, name: '全部文件'}];
     let current = parentId;
     while (current) {
@@ -1421,7 +1421,7 @@ function FilesView({ files = [], onDelete, onRefresh, user, showConfirm, showNot
       }
     }
     return path.reverse();
-  };
+  }, [parentId, folders]);
 
   const breadcrumb = getBreadcrumb();
 
@@ -1429,13 +1429,9 @@ function FilesView({ files = [], onDelete, onRefresh, user, showConfirm, showNot
     try {
       const userId = user?.id;
       const res = await fetch(`/api/folders${userId ? `?userId=${userId}` : ''}`);
-      if (!res.ok) {
-        console.error('Failed to fetch folders:', res.status, res.statusText);
-        return;
-      }
+      if (!res.ok) return;
       const data = await res.json();
       setFolders(data.folders || []);
-      console.log('Fetched folders:', data.folders?.length);
     } catch (error) {
       console.error('Error fetching folders:', error);
     }
@@ -1597,12 +1593,12 @@ function FilesView({ files = [], onDelete, onRefresh, user, showConfirm, showNot
         setShowUpload(false);
         setSelectedFile(null);
         setFileType('pdf');
+        setParentId(null);
       } else {
         showNotification('error', data.message || '上传失败');
       }
     } catch (error) {
-      console.error('Upload error:', error);
-      showNotification('error', '上传出错');
+      showNotification('error', '上传失败');
     } finally {
       setUploading(false);
     }
@@ -1625,7 +1621,6 @@ function FilesView({ files = [], onDelete, onRefresh, user, showConfirm, showNot
         })
       });
       const result = await res.json();
-      console.log('Create folder result:', result);
       if (result.success) {
         showNotification('success', '创建文件夹成功');
         setNewFolderName('');
@@ -1633,12 +1628,10 @@ function FilesView({ files = [], onDelete, onRefresh, user, showConfirm, showNot
         setFolderGroups([]);
         setShowAddFolder(false);
         await fetchFolders();
-        console.log('Folders after creation:', folders);
       } else {
         showNotification('error', result.message || '创建失败');
       }
     } catch (error) {
-      console.error('Create folder error:', error);
       showNotification('error', '创建文件夹失败');
     }
   };
@@ -1809,11 +1802,7 @@ function FilesView({ files = [], onDelete, onRefresh, user, showConfirm, showNot
                               className="w-full h-full object-cover rounded-lg"
                               loading="lazy"
                               onError={(e) => { 
-                                console.log('Image load error:', file.file_url);
                                 (e.target as HTMLImageElement).style.display = 'none'; 
-                              }}
-                              onLoad={(e) => {
-                                console.log('Image loaded:', file.file_url);
                               }}
                             />
                           ) : file.file_type === 'video' && file.file_url && file.file_url !== '#' ? (
@@ -1823,7 +1812,6 @@ function FilesView({ files = [], onDelete, onRefresh, user, showConfirm, showNot
                               controls
                               preload="metadata"
                               onError={(e) => { 
-                                console.log('Video load error:', file.file_url);
                                 (e.target as HTMLVideoElement).style.display = 'none'; 
                               }}
                             />
@@ -2402,21 +2390,17 @@ function ClassesView({ classes = [], onRefresh, showNotification, showConfirm }:
     setImporting(true);
     const formData = new FormData();
     formData.append('file', importFile);
-    console.log('Starting import with file:', importFile.name);
     try {
       const res = await fetch('/api/classes/import', {
         method: 'POST',
         body: formData
       });
-      console.log('Import response status:', res.status);
       if (!res.ok) {
         const errorData = await res.json();
-        console.error('Import error:', errorData);
         showNotification('error', errorData.message || '导入失败');
         return;
       }
       const result = await res.json();
-      console.log('Import result:', result);
       if (result.success) {
         showNotification('success', `导入成功：${result.classCount} 个班级，${result.studentCount} 个学生`);
         await onRefresh();
@@ -2426,7 +2410,6 @@ function ClassesView({ classes = [], onRefresh, showNotification, showConfirm }:
         showNotification('error', result.message || '导入失败');
       }
     } catch (error) {
-      console.error('Import error:', error);
       showNotification('error', '导入失败');
     } finally {
       setImporting(false);
