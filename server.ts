@@ -147,6 +147,10 @@ try {
     console.log('[MIGRATION] Adding group_ids to folders table');
     db.exec("ALTER TABLE folders ADD COLUMN group_ids TEXT");
   }
+  if (!foldersColumnNames.includes('creator_id')) {
+    console.log('[MIGRATION] Adding creator_id to folders table');
+    db.exec("ALTER TABLE folders ADD COLUMN creator_id INTEGER");
+  }
   console.log('[MIGRATION] Permission columns added successfully');
 } catch (e) {
   console.log('[MIGRATION] Permission columns already exist or error:', e);
@@ -827,13 +831,20 @@ async function startServer() {
       let folders;
       if (user.role === 'admin' || user.role === 'teacher') {
         // Admins and teachers see all folders
-        folders = db.prepare("SELECT * FROM folders ORDER BY created_at DESC").all();
+        folders = db.prepare(`
+          SELECT f.*, u.name as creator_name 
+          FROM folders f 
+          LEFT JOIN users u ON f.creator_id = u.id 
+          ORDER BY f.created_at DESC
+        `).all();
       } else if (user.role === 'student' && user.student_id) {
         const student = db.prepare("SELECT group_id FROM students WHERE id = ?").get(user.student_id) as any;
         const userGroupId = student?.group_id || null;
         
         folders = db.prepare(`
-          SELECT DISTINCT f.* FROM folders f
+          SELECT DISTINCT f.*, u.name as creator_name 
+          FROM folders f 
+          LEFT JOIN users u ON f.creator_id = u.id
           WHERE (f.role_ids IS NULL AND f.group_ids IS NULL)
              OR (f.role_ids LIKE '%student%')
              OR EXISTS (SELECT 1 FROM json_each(f.group_ids) WHERE json_each.value = ?)
@@ -852,7 +863,7 @@ async function startServer() {
 
   // 创建文件夹
   app.post("/api/folders", (req, res) => {
-    const { name, parent_id, role_ids, group_ids } = req.body;
+    const { name, parent_id, role_ids, group_ids, creator_id } = req.body;
     if (!name || !name.trim()) {
       return res.status(400).json({ success: false, message: "文件夹名称不能为空" });
     }
@@ -860,11 +871,12 @@ async function startServer() {
     try {
       const roleIdsJson = role_ids ? JSON.stringify(role_ids) : null;
       const groupIdsJson = group_ids ? JSON.stringify(group_ids) : null;
-      const result = db.prepare("INSERT INTO folders (name, parent_id, role_ids, group_ids) VALUES (?, ?, ?, ?)").run(
+      const result = db.prepare("INSERT INTO folders (name, parent_id, role_ids, group_ids, creator_id) VALUES (?, ?, ?, ?, ?)").run(
         name.trim(), 
         parent_id || null,
         roleIdsJson,
-        groupIdsJson
+        groupIdsJson,
+        creator_id || null
       );
       res.json({ success: true, folderId: result.lastInsertRowid });
     } catch (e) {

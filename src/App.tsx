@@ -43,7 +43,9 @@ import {
   FileText,
   Image,
   Video,
-  File
+  File,
+  Grid,
+  List
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -91,6 +93,8 @@ export interface Folder {
   parent_id: number | null;
   role_ids?: string | null;
   group_ids?: string | null;
+  creator_id?: number | null;
+  creator_name?: string | null;
 }
 
 export interface Role {
@@ -1242,6 +1246,7 @@ function ExcelPreview({ url, name }: { url: string; name: string }) {
 
 function FilesView({ files = [], onDelete, onRefresh, user, showConfirm, showNotification }: { files: StudentFile[], onDelete: (id: number) => void, onRefresh: () => void, user: User, showConfirm: (options: { title: string; message: string; onConfirm: () => void; type?: 'danger' | 'warning' | 'info' }) => void, showNotification: (type: 'success' | 'error' | 'warning' | 'info', message: string) => void }) {
   const [filter, setFilter] = useState<string>('all');
+  const [viewMode, setViewMode] = useState<'icon' | 'list'>('icon');
   const [showUpload, setShowUpload] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [selectedFiles, setSelectedFiles] = useState<number[]>([]);
@@ -1617,7 +1622,8 @@ function FilesView({ files = [], onDelete, onRefresh, user, showConfirm, showNot
           name: newFolderName, 
           parent_id: parentId,
           role_ids: folderRoles.length > 0 ? folderRoles : null,
-          group_ids: folderGroups.length > 0 ? folderGroups : null
+          group_ids: folderGroups.length > 0 ? folderGroups : null,
+          creator_id: user?.id
         })
       });
       const result = await res.json();
@@ -1738,11 +1744,25 @@ function FilesView({ files = [], onDelete, onRefresh, user, showConfirm, showNot
           </span>
         </div>
 
-        <div className="flex gap-2 mb-4">
+        <div className="flex gap-2 mb-4 items-center">
           <FileTypeSelect
             value={filter}
             onChange={(value) => { setFilter(value); setCurrentPage(1); }}
           />
+          <div className="ml-auto flex gap-1 bg-slate-100 rounded-lg p-1">
+            <button
+              onClick={() => setViewMode('icon')}
+              className={`p-2 rounded-md transition-all ${viewMode === 'icon' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-400 hover:text-slate-600'}`}
+            >
+              <Grid size={16} />
+            </button>
+            <button
+              onClick={() => setViewMode('list')}
+              className={`p-2 rounded-md transition-all ${viewMode === 'list' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-400 hover:text-slate-600'}`}
+            >
+              <List size={16} />
+            </button>
+          </div>
         </div>
 
         {currentFolders.length === 0 && displayFiles.length === 0 ? (
@@ -1759,114 +1779,192 @@ function FilesView({ files = [], onDelete, onRefresh, user, showConfirm, showNot
             </div>
           ) : (
             <>
-              {(currentFolders.length > 0 && !(searchType === 'file' && searchQuery)) && (
-                <div className="mb-6">
-                  <h4 className="text-sm font-bold text-slate-400 mb-3">文件夹</h4>
-                  <div className="grid grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
-                    {currentFolders.map(folder => (
-                      <FolderCard 
-                        key={folder.id}
-                        title={folder.name} 
-                        onClick={() => setParentId(folder.id)}
-                        onSettings={() => setEditingFolder(folder)}
-                        isSelected={selectedFolders.includes(folder.id)}
-                        onSelect={() => {
-                          if (selectedFolders.includes(folder.id)) {
-                            setSelectedFolders(selectedFolders.filter(id => id !== folder.id));
-                          } else {
-                            setSelectedFolders([...selectedFolders, folder.id]);
-                          }
-                        }}
-                      />
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {(displayFiles.length > 0 && !(searchType === 'folder' && searchQuery)) && (
-                <div>
-                  <h4 className="text-sm font-bold text-slate-400 mb-3">文件</h4>
-                  <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
-                    {displayFiles.map(file => (
-                      <div 
-                        key={file.id} 
-                        className="bg-white rounded-xl border border-slate-200 p-3 hover:shadow-md transition-shadow group relative cursor-pointer"
-                        onClick={() => setPreviewFile(file)}
-                      >
-                        <div className="absolute top-2 left-2 z-10">
-                          <button onClick={(e) => { e.stopPropagation(); toggleFileSelection(file.id); }}>
-                            {selectedFiles.includes(file.id) ? (
-                              <CheckCircle2 size={18} className="text-blue-600" />
-                            ) : (
-                              <Circle size={18} className="text-slate-300" />
-                             )}
-                          </button>
-                        </div>
-                        <div className="aspect-square bg-slate-50 rounded-lg mb-2 flex items-center justify-center overflow-hidden">
-                          {file.file_type === 'image' && file.file_url && file.file_url !== '#' ? (
-                            <img 
-                              src={file.file_url} 
-                              alt={file.name} 
-                              className="w-full h-full object-cover rounded-lg"
-                              loading="lazy"
-                              onError={(e) => { 
-                                (e.target as HTMLImageElement).style.display = 'none'; 
-                              }}
-                            />
-                          ) : file.file_type === 'video' && file.file_url && file.file_url !== '#' ? (
-                            <video 
-                              src={file.file_url} 
-                              className="w-full h-full object-contain"
-                              controls
-                              preload="metadata"
-                              onError={(e) => { 
-                                (e.target as HTMLVideoElement).style.display = 'none'; 
-                              }}
-                            />
-                          ) : (file.file_type === 'pdf' || file.name.match(/\.(xls|xlsx)$/i)) && file.file_url && file.file_url !== '#' ? (
-                            file.name.match(/\.(xls|xlsx)$/i) ? (
-                              <ExcelPreview url={file.file_url} name={file.name} />
-                            ) : (
-                              <iframe 
-                                src={file.file_url}
-                                className="w-full h-full rounded-lg"
-                                title={file.name}
-                              />
-                            )
-                          ) : (
-                            <div className="flex flex-col items-center justify-center">
-                              <FileTypeIcon type={file.file_type} />
-                              <span className="text-xs text-slate-400 mt-1"><FileTypeLabel type={file.file_type} /></span>
-                            </div>
-                          )}
-                        </div>
-                        <p className="font-medium text-xs truncate">{file.name}</p>
-                        <p className="text-xs text-slate-400">{formatSize(file.file_size)}</p>
+              {viewMode === 'icon' ? (
+                <>
+                  {(currentFolders.length > 0 && !(searchType === 'file' && searchQuery)) && (
+                    <div className="mb-6">
+                      <h4 className="text-sm font-bold text-slate-400 mb-3">文件夹</h4>
+                      <div className="grid grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
+                        {currentFolders.map(folder => (
+                          <FolderCard 
+                            key={folder.id}
+                            title={folder.name} 
+                            onClick={() => setParentId(folder.id)}
+                            onSettings={() => setEditingFolder(folder)}
+                            isSelected={selectedFolders.includes(folder.id)}
+                            onSelect={() => {
+                              if (selectedFolders.includes(folder.id)) {
+                                setSelectedFolders(selectedFolders.filter(id => id !== folder.id));
+                              } else {
+                                setSelectedFolders([...selectedFolders, folder.id]);
+                              }
+                            }}
+                          />
+                        ))}
                       </div>
-                    ))}
-                  </div>
+                    </div>
+                  )}
+
+                  {(displayFiles.length > 0 && !(searchType === 'folder' && searchQuery)) && (
+                    <div>
+                      <h4 className="text-sm font-bold text-slate-400 mb-3">文件</h4>
+                      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
+                        {displayFiles.map(file => (
+                          <div 
+                            key={file.id} 
+                            className="bg-white rounded-xl border border-slate-200 p-3 hover:shadow-md transition-shadow group relative cursor-pointer"
+                            onClick={() => setPreviewFile(file)}
+                          >
+                            <div className="absolute top-2 left-2 z-10">
+                              <button onClick={(e) => { e.stopPropagation(); toggleFileSelection(file.id); }}>
+                                {selectedFiles.includes(file.id) ? (
+                                  <CheckCircle2 size={18} className="text-blue-600" />
+                                ) : (
+                                  <Circle size={18} className="text-slate-300" />
+                                )}
+                              </button>
+                            </div>
+                            <div className="aspect-square bg-slate-50 rounded-lg mb-2 flex items-center justify-center overflow-hidden">
+                              {file.file_type === 'image' && file.file_url && file.file_url !== '#' ? (
+                                <img 
+                                  src={file.file_url} 
+                                  alt={file.name} 
+                                  className="w-full h-full object-cover rounded-lg"
+                                  loading="lazy"
+                                  onError={(e) => { 
+                                    (e.target as HTMLImageElement).style.display = 'none'; 
+                                  }}
+                                />
+                              ) : file.file_type === 'video' && file.file_url && file.file_url !== '#' ? (
+                                <video 
+                                  src={file.file_url} 
+                                  className="w-full h-full object-contain"
+                                  controls
+                                  preload="metadata"
+                                  onError={(e) => { 
+                                    (e.target as HTMLVideoElement).style.display = 'none'; 
+                                  }}
+                                />
+                              ) : (file.file_type === 'pdf' || file.name.match(/\.(xls|xlsx)$/i)) && file.file_url && file.file_url !== '#' ? (
+                                file.name.match(/\.(xls|xlsx)$/i) ? (
+                                  <ExcelPreview url={file.file_url} name={file.name} />
+                                ) : (
+                                  <iframe 
+                                    src={file.file_url}
+                                    className="w-full h-full rounded-lg"
+                                    title={file.name}
+                                  />
+                                )
+                              ) : (
+                                <div className="flex flex-col items-center justify-center">
+                                  <FileTypeIcon type={file.file_type} />
+                                  <span className="text-xs text-slate-400 mt-1"><FileTypeLabel type={file.file_type} /></span>
+                                </div>
+                              )}
+                            </div>
+                            <p className="font-medium text-xs truncate">{file.name}</p>
+                            <p className="text-xs text-slate-400">{formatSize(file.file_size)}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b border-slate-100 bg-slate-50">
+                        <th className="text-left py-3 px-4 text-xs font-semibold text-slate-500">名称</th>
+                        <th className="text-left py-3 px-4 text-xs font-semibold text-slate-500">类型</th>
+                        <th className="text-left py-3 px-4 text-xs font-semibold text-slate-500">大小</th>
+                        <th className="text-left py-3 px-4 text-xs font-semibold text-slate-500">上传者</th>
+                        <th className="text-left py-3 px-4 text-xs font-semibold text-slate-500">上传时间</th>
+                        <th className="text-left py-3 px-4 text-xs font-semibold text-slate-500">操作</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {!(searchType === 'file' && searchQuery) && currentFolders.map(folder => (
+                        <tr key={`folder-${folder.id}`} className="border-b border-slate-50 hover:bg-slate-50 cursor-pointer transition-colors" onClick={() => setParentId(folder.id)}>
+                          <td className="py-3 px-4">
+                            <div className="flex items-center gap-3">
+                              <Folder size={18} className="text-amber-500" />
+                              <span className="text-sm font-medium text-slate-700 truncate max-w-xs">{folder.name}</span>
+                            </div>
+                          </td>
+                          <td className="py-3 px-4 text-sm text-slate-500">文件夹</td>
+                          <td className="py-3 px-4 text-sm text-slate-500">-</td>
+                          <td className="py-3 px-4 text-sm text-slate-500">{folder.creator_name || '-'}</td>
+                          <td className="py-3 px-4 text-sm text-slate-500">{folder.created_at ? new Date(folder.created_at).toLocaleDateString('zh-CN') : '-'}</td>
+                          <td className="py-3 px-4">
+                            <button 
+                              onClick={(e) => { e.stopPropagation(); setEditingFolder(folder); }}
+                              className="text-slate-400 hover:text-blue-500 transition-colors mr-2"
+                            >
+                              <Settings size={14} />
+                            </button>
+                            <button 
+                              onClick={(e) => { e.stopPropagation(); handleDeleteFolder(folder.id); }}
+                              className="text-slate-400 hover:text-red-500 transition-colors"
+                            >
+                              <Trash size={14} />
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                      {!(searchType === 'folder' && searchQuery) && displayFiles.map(file => (
+                        <tr key={file.id} className="border-b border-slate-50 hover:bg-slate-50 cursor-pointer transition-colors" onClick={() => setPreviewFile(file)}>
+                          <td className="py-3 px-4">
+                            <div className="flex items-center gap-3">
+                              <button onClick={(e) => { e.stopPropagation(); toggleFileSelection(file.id); }}>
+                                {selectedFiles.includes(file.id) ? (
+                                  <CheckCircle2 size={16} className="text-blue-600" />
+                                ) : (
+                                  <Circle size={16} className="text-slate-300" />
+                                )}
+                              </button>
+                              <FileTypeIcon type={file.file_type} />
+                              <span className="text-sm font-medium text-slate-700 truncate max-w-xs">{file.name}</span>
+                            </div>
+                          </td>
+                          <td className="py-3 px-4 text-sm text-slate-500"><FileTypeLabel type={file.file_type} /></td>
+                          <td className="py-3 px-4 text-sm text-slate-500">{formatSize(file.file_size)}</td>
+                          <td className="py-3 px-4 text-sm text-slate-500">{file.uploader_name || '-'}</td>
+                          <td className="py-3 px-4 text-sm text-slate-500">{file.upload_time ? new Date(file.upload_time).toLocaleDateString('zh-CN') : '-'}</td>
+                          <td className="py-3 px-4">
+                            <button 
+                              onClick={(e) => { e.stopPropagation(); handleDeleteFile(file.id); }}
+                              className="text-slate-400 hover:text-red-500 transition-colors"
+                            >
+                              <Trash size={14} />
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
               )}
 
               {totalPages > 1 && (
-              <div className="flex justify-center items-center gap-2 mt-6">
-                <button 
-                  onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                  disabled={currentPage === 1}
-                  className="px-3 py-1.5 rounded-lg border border-slate-200 text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-slate-50"
-                >
-                  上一页
-                </button>
-                <span className="text-sm text-slate-500">{currentPage} / {totalPages}</span>
-                <button 
-                  onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                  disabled={currentPage === totalPages}
-                  className="px-3 py-1.5 rounded-lg border border-slate-200 text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-slate-50"
-                >
-                  下一页
-                </button>
-              </div>
-            )}
+                <div className="flex justify-center items-center gap-2 mt-6">
+                  <button 
+                    onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                    disabled={currentPage === 1}
+                    className="px-3 py-1.5 rounded-lg border border-slate-200 text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-slate-50"
+                  >
+                    上一页
+                  </button>
+                  <span className="text-sm text-slate-500">{currentPage} / {totalPages}</span>
+                  <button 
+                    onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                    disabled={currentPage === totalPages}
+                    className="px-3 py-1.5 rounded-lg border border-slate-200 text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-slate-50"
+                  >
+                    下一页
+                  </button>
+                </div>
+              )}
             </>
           )}
       </div>
