@@ -299,7 +299,7 @@ async function startServer() {
   console.log('[START] Initializing server...');
   console.log('[START] Upload dir:', uploadDir);
   const app = express();
-  const PORT = 3000;
+  const PORT = Number(process.env.PORT) || 3000;
 
   app.use(express.json());
   app.use("/uploads", express.static(uploadDir));
