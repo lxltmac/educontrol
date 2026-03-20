@@ -43,7 +43,7 @@ export function SearchTypeSelect({ value, onChange, className }: SearchTypeSelec
         type="button"
         onClick={() => setIsOpen(!isOpen)}
         className={cn(
-          "flex h-8 items-center justify-between gap-2 rounded-l-lg border border-r-0 border-slate-200 bg-white px-3 text-sm text-slate-600 outline-none transition-all",
+          "flex h-10 items-center justify-between gap-2 rounded-l-lg border border-r-0 border-slate-200 bg-white px-3 text-sm text-slate-600 outline-none transition-all",
           "hover:border-blue-300 hover:bg-blue-50",
           isOpen && "border-blue-400 bg-blue-50 ring-2 ring-blue-200"
         )}

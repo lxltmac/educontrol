@@ -1671,7 +1671,7 @@ function FilesView({ files = [], onDelete, onRefresh, user, showConfirm, showNot
                   placeholder="搜索..." 
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="h-8 pl-9 pr-4 border border-slate-200 rounded-r-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 w-48 bg-white"
+                  className="h-10 pl-10 pr-4 border border-slate-200 rounded-r-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 w-48 bg-white"
                 />
               </div>
             </div>
@@ -1730,7 +1730,11 @@ function FilesView({ files = [], onDelete, onRefresh, user, showConfirm, showNot
             </React.Fragment>
           ))}
           <span className="ml-auto text-slate-400 text-xs">
-            {currentFolders.length} 个文件夹，{currentFiles.length} 个文件
+            {searchType === 'file' && searchQuery 
+              ? `${currentFiles.length} 个文件`
+              : searchType === 'folder' && searchQuery 
+                ? `${currentFolders.length} 个文件夹`
+                : `${currentFolders.length} 个文件夹，${currentFiles.length} 个文件`}
           </span>
         </div>
 
@@ -1746,12 +1750,16 @@ function FilesView({ files = [], onDelete, onRefresh, user, showConfirm, showNot
               <div className="w-16 h-16 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-4">
                 <Folder className="text-slate-300" size={32} />
               </div>
-              <p className="text-slate-400">当前文件夹为空</p>
-              <p className="text-xs text-slate-400 mt-1">可以上传文件或创建子文件夹</p>
+              <p className="text-slate-400">
+                {searchQuery 
+                  ? `未找到匹配的${searchType === 'file' ? '文件' : searchType === 'folder' ? '文件夹' : searchType === 'uploader' ? '文件' : '内容'}`
+                  : '当前文件夹为空'}
+              </p>
+              {!searchQuery && <p className="text-xs text-slate-400 mt-1">可以上传文件或创建子文件夹</p>}
             </div>
           ) : (
             <>
-              {currentFolders.length > 0 && (
+              {(currentFolders.length > 0 && !(searchType === 'file' && searchQuery)) && (
                 <div className="mb-6">
                   <h4 className="text-sm font-bold text-slate-400 mb-3">文件夹</h4>
                   <div className="grid grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
@@ -1775,7 +1783,7 @@ function FilesView({ files = [], onDelete, onRefresh, user, showConfirm, showNot
                 </div>
               )}
 
-              {displayFiles.length > 0 && (
+              {(displayFiles.length > 0 && !(searchType === 'folder' && searchQuery)) && (
                 <div>
                   <h4 className="text-sm font-bold text-slate-400 mb-3">文件</h4>
                   <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
